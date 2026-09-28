@@ -16,32 +16,42 @@ MAIL_LOSENORD = "ditt_app_losenord"
 MAIL_SMTP_SERVER = "://gmail.com"
 MAIL_PORT = 587
 
+# DINA EXAKTA KORREKTA KONTON OCH LAG
+STANDARD_KONTON = [
+    "5800 Biljetter (tåg/buss/flyg/båt)",
+    "5830 Kost",
+    "5831 Logi",
+    "7330 Bilersättning",
+    "2999 Övrigt",
+]
+STANDARD_LAG = ["Dam Elit", "Herr Elit", "Dam div1", "Herr div2"]
+
 
 def ladda_admin_data():
     if not os.path.exists(DATA_FILE):
         standard_data = {
             "kategorier": ["Bilersättning", "Kost", "Logi", "Biljetter", "Övrigt"],
-            "lag": ["A-lag", "J20", "P15"],
-            "konton": [
-                "4000 Inköp",
-                "5000 Lokaler",
-                "5800 Resekostnader",
-                "6000 Övrigt",
-            ],
+            "lag": STANDARD_LAG,
+            "konton": STANDARD_KONTON,
             "anvandare": [],
             "godkanda_utlagg": [],
         }
         with open(DATA_FILE, "w", encoding="utf-8") as f:
             json.dump(standard_data, f, ensure_ascii=False, indent=4)
         return standard_data
+
     with open(DATA_FILE, "r", encoding="utf-8") as f:
         data = json.load(f)
+        # Säkerställ att grundstrukturen alltid är intakt
         if "godkanda_utlagg" not in data:
             data["godkanda_utlagg"] = []
         if "anvandare" not in data:
             data["anvandare"] = []
-        if "lag" not in data:
-            data["lag"] = []
+
+        # Tvinga uppdatering av dina specifika lag och konton så att gamla listor rensas bort
+        data["lag"] = STANDARD_LAG
+        data["konton"] = STANDARD_KONTON
+
         return data
 
 
@@ -68,7 +78,9 @@ def skicka_attest_mail(till_epost, attestant_namn, lag_namn, belopp, kategori):
         return False
 
 
+# Hämta sparad data
 admin_data = ladda_admin_data()
+spara_admin_data(admin_data)  # Skriv direkt till filen så att uppdateringen sparar sig
 
 # =========================================================================
 # 2. SKAPA DE TRE FLIKARNA
@@ -134,7 +146,7 @@ with flik_attestera:
     col_info, col_konto = st.columns(2)
     with col_info:
         namn_inskickat = "Kalle Karlsson"
-        lag_inskickat = "A-lag"
+        lag_inskickat = "Dam Elit"
         kat_inskickat = "Material"
         belopp_inskickat = 1250.00
         filnamn_inskickat = "Kvitto_matchställ.pdf"
@@ -224,38 +236,22 @@ with flik_admin:
                 st.rerun()
 
     with st.expander("🏃‍♂️ & 🧾 Hantera Lag och Konton", expanded=False):
-        col_lag, col_konto_admin = st.columns(2)
-        with col_lag:
-            st.write("**Registrerade lag:**", admin_data.get("lag", []))
-            nytt_lag = st.text_input("Nytt lag:", key="admin_nytt_lag")
-            if st.button("➕ Lägg till lag", key="btn_add_lag"):
-                if nytt_lag and nytt_lag not in admin_data["lag"]:
-                    admin_data["lag"].append(nytt_lag)
-                    spara_admin_data(admin_data)
-                    st.rerun()
-        with col_konto_admin:
-            st.write("**Bokföringskonton:**", admin_data.get("konton", []))
-            nytt_konto = st.text_input(
-                "Nytt konto (t.ex. 4000 Inköp):", key="admin_nytt_konto"
-            )
-            if st.button("➕ Lägg till konto", key="btn_add_konto"):
-                if nytt_konto and nytt_konto not in admin_data["konton"]:
-                    admin_data["konton"].append(nytt_konto)
-                    spara_admin_data(admin_data)
-                    st.rerun()
+        st.write("**Registrerade lag:**")
+        st.write(", ".join(admin_data.get("lag", [])))
+        st.write("**Bokföringskonton:**")
+        for k in admin_data.get("konton", []):
+            st.text(f"• {k}")
 
-    # UPPDATERAD SEKTION FOR ATT SÄKRA SPARANDET
     with st.expander("👥 Hantera Attestanter & Lagkoppling", expanded=True):
         st.subheader("Registrerade användare och ansvarsområden")
 
-        if admin_data.get("anvandare"):
-            # Skapa en ren tabellvy över användarna för bättre kontroll
+        if admin_data.get("anvandare") and len(admin_data["anvandare"]) > 0:
             anv_list = []
             for anv in admin_data["anvandare"]:
                 anv_list.append(
                     {
-                        "Namn": anv["namn"],
-                        "E-post": anv["epost"],
+                        "Namn": anv.get("namn", ""),
+                        "E-post": anv.get("epost", ""),
                         "Kopplade Lag": ", ".join(anv.get("lag", [])),
                     }
                 )
@@ -264,5 +260,14 @@ with flik_admin:
             st.info("Inga attestanter har registrerats ännu.")
 
         st.divider()
-        st.subheader("Lägg till ny attestant")
+        st.subheader("Skapa ny attestantprofil")
 
+        with st.form("skapa_anvandare_form", clear_on_submit=True):
+            anv_namn = st.text_input("Namn på person:")
+            anv_epost = st.text_input("E-postadress (för notiser):")
+            anv_losen = st.text_input("Ange lösenord/PIN:", type="password")
+
+            tillgangliga_lag = list(admin_data.get("lag", []))
+            anv_lag = st.multiselect(
+                "Markera de lag personen får attestera för:",
+                options=tillgangliga_lag,
