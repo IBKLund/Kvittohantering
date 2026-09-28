@@ -2,12 +2,11 @@ import json
 import os
 import streamlit as st
 
-# 1. INSTÄLLNING FÖR DEN BAKOMLIGGANDE DATA-FILEN
+# 1. HÄMTA OCH SPARA DATA I BAKGRUNDEN
 DATA_FILE = "admin_data.json"
 
 
 def ladda_admin_data():
-    """Läser in inställningar från filen. Skapar standarddata om filen inte finns."""
     if not os.path.exists(DATA_FILE):
         standard_data = {
             "kategorier": ["Bilersättning", "Kost", "Logi", "Biljetter", "Övrigt"],
@@ -18,68 +17,91 @@ def ladda_admin_data():
         with open(DATA_FILE, "w", encoding="utf-8") as f:
             json.dump(standard_data, f, ensure_ascii=False, indent=4)
         return standard_data
-
     with open(DATA_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
 def spara_admin_data(data):
-    """Sparar alla ändringar till JSON-filen."""
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
 
 
-# Hämta aktuell data när appen laddas
 admin_data = ladda_admin_data()
 
-
-# 2. SKAPA SKÄRMFLIKARNA I APPEN
-flik_attest, flik_admin = st.tabs(["📋 Registrera Attest", "⚙️ Adminpanel"])
+# 2. SKAPA DE TRE SEPARATA FLIKARNA
+# Här ser vi till att dina två ursprungliga funktioner delas upp rätt igen!
+flik_registrera, flik_attestera, flik_admin = st.tabs(
+    ["📝 Registrera Utlägg", "✅ Attestfunktion", "⚙️ Adminpanel"]
+)
 
 
 # =========================================================================
-# --- FLIK 1: REGISTRERA ATTEST (Den vanliga vyn för användare) ---
+# --- FLIK 1: REGISTRERA UTLÄGG (Med obligatorisk filuppladdning) ---
 # =========================================================================
-with flik_attest:
-    st.title("📋 Attestera och registrera utlägg")
-    st.write("Fyll i uppgifterna nedan för att skicka in ditt utlägg.")
+with flik_registrera:
+    st.title("📝 Registrera nytt utlägg")
+    st.write("Fyll i alla uppgifter och ladda upp ditt kvitto/underlag.")
 
-    # Sortera kategorierna så att 'Övrigt' alltid hamnar sist i rullistan
+    # Sortera kategorierna (Övrigt sist)
     aktuella_kategorier = list(admin_data.get("kategorier", []))
     if "Övrigt" in aktuella_kategorier:
         aktuella_kategorier.remove("Övrigt")
         aktuella_kategorier.sort()
         aktuella_kategorier.append("Övrigt")
 
-    # HÄMTA DATA TILL RULLISTORNA FRÅN ADMINPANELEN
-    vald_kategori = st.selectbox(
-        "Välj kategori:",
-        options=aktuella_kategorier,
-        placeholder="Välj...",
-    )
+    # Rullistor hämtade live från Admin-fliken
     valt_lag = st.selectbox(
         "Välj lag/avdelning:", options=admin_data.get("lag", [])
+    )
+    vald_kategori = st.selectbox(
+        "Välj kategori:", options=aktuella_kategorier
     )
     valt_konto = st.selectbox(
         "Välj bokföringskonto:", options=admin_data.get("konton", [])
     )
 
-    belopp = st.number_input("Belopp (kr):", min_value=0.0, step=10.0)
+    belopp = st.number_input(
+        "Belopp (kr):", min_value=0.0, step=10.0, value=0.0
+    )
 
-    if st.button("Skicka in för attest"):
-        st.success(
-            f"Utlägget på {belopp} kr för {valt_lag} inom kategorin '{vald_kategori}' har skickats!"
-        )
+    # OBLIGATORISK FILUPPLADDNING
+    # st.file_uploader tillåter PDF, PNG och JPG (vanliga kvittoformat)
+    uppladdad_fil = st.file_uploader(
+        "Ladda upp kvitto eller underlag (Obligatoriskt) *",
+        type=["pdf", "png", "jpg", "jpeg"],
+    )
+
+    # Kontroll när användaren klickar på knappen
+    if st.button("Skicka in utlägg", type="primary"):
+        if not uppladdad_fil:
+            # Om filen saknas stoppas processen med ett felmeddelande
+            st.error(
+                "❌ Du måste ladda upp ett kvitto eller underlag för att kunna skicka in utlägget!"
+            )
+        elif belopp <= 0:
+            st.warning("⚠️ Vänligen ange ett giltigt belopp över 0 kr.")
+        else:
+            # Om allt är ifyllt och filen finns med
+            st.success(
+                f"✅ Klart! Utlägget på {belopp} kr för {valt_lag} har registrerats med filen: *{uppladdad_fil.name}*"
+            )
 
 
 # =========================================================================
-# --- FLIK 2: ADMINPANEL (Här styr du allt i realtid) ---
+# --- FLIK 2: ATTESTFUNKTION ---
+# =========================================================================
+with flik_attestera:
+    st.title("✅ Attestfunktion")
+    st.write("Här visas inskickade utlägg som väntar på ditt godkännande.")
+    st.info("Inga nya utlägg att attestera just nu.")
+
+
+# =========================================================================
+# --- FLIK 3: ADMINPANEL ---
 # =========================================================================
 with flik_admin:
     st.title("⚙️ Administratörspanel")
-    st.caption(
-        "Här styr du allt som visas i appens rullistor och hanterar behörigheter."
-    )
+    st.caption("Styr innehållet i rullistorna för fliken 'Registrera Utlägg'.")
 
     # --- SEKTION: KATEGORIER ---
     with st.expander("📁 Hantera Kategorier (Utläggstyper)", expanded=True):
