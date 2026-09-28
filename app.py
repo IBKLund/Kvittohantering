@@ -11,8 +11,8 @@ import streamlit as st
 # =========================================================================
 DATA_FILE = "admin_data.json"
 
-MAIL_AVSANDARE = "din_forenings_mail@gmail.com"
-MAIL_LOSENORD = "ditt_app_losenord"
+MAIL_AVSANDARE = "kvitto@ibklund.se"
+MAIL_LOSENORD = "lquelydfygnvizqv"
 MAIL_SMTP_SERVER = "://gmail.com"
 MAIL_PORT = 587
 
