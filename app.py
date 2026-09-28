@@ -22,7 +22,7 @@ def ladda_admin_data():
     if not os.path.exists(DATA_FILE):
         standard_data = {
             "kategorier": ["Bilersättning", "Kost", "Logi", "Biljetter", "Övrigt"],
-            "lag": ["A-lag", "J20", "P15"],
+            "lag": ["Dam Elit", "Herr Elit", "Dam div 1"],
             "konton": ["4000", "5000", "6000"],
             "anvandare": [],
         }
