@@ -52,11 +52,7 @@ def skicka_attest_mail(till_epost, attestant_namn, lag_namn, belopp, kategori):
     msg["To"] = till_epost
     msg["Subject"] = f"Nytt utlägg att attestera - {lag_namn}"
 
-    text = f"""Hej {attestant_namn},
-Ett nytt utlägg har registrerats för {lag_namn} och väntar på din attest.
-• Kategori: {kategori}
-• Belopp: {belopp} kr
-Logga in för att välja konto och godkänna utlägget."""
+    text = f"Hej {attestant_namn},\nEtt nytt utlägg har registrerats för {lag_namn} och väntar på din attest.\n• Kategori: {kategori}\n• Belopp: {belopp} kr\nLogga in för att välja konto och godkänna utlägget."
 
     msg.attach(MIMEText(text, "plain", "utf-8"))
     try:
@@ -140,7 +136,6 @@ with flik_attestera:
 
     st.divider()
     st.subheader("Ärenden som väntar på godkännande")
-
     st.info("📥 **1 nytt utlägg att hantera:**")
 
     col_info, col_konto = st.columns(2)
@@ -159,7 +154,6 @@ with flik_attestera:
         st.caption(f"📄 *{filnamn_inskickat} (Bifogad)*")
 
     with col_konto:
-        # Här fylls kolumnen med rätt indrag
         valt_konto_attest = st.selectbox(
             "Välj/Ändra bokföringskonto:",
             options=admin_data.get("konton", []),
@@ -268,6 +262,5 @@ with flik_admin:
     with st.expander("👥 Hantera Attestanter & Lagkoppling"):
         st.write("**Registrerade användare och deras ansvarslag:**")
         for anv in admin_data.get("anvandare", []):
-            lag_str = (
-                ", ".join(anv.get("lag", []))
-                if anv.get("lag")
+            mina_lag = anv.get("lag", [])
+            lag_str = ", ".join(mina_lag) if mina_lag else "Inga lag"
