@@ -56,7 +56,7 @@ with flik1:
                 "Kategori": kategori,
                 "Konto": KONTO_KARTOR[kategori],
                 "Belopp": belopp,
-                "Beskrivning":Core = beskrivning,
+                "Beskrivning": beskrivning,
                 "Kvitto_Fil": sparad_filnamn,
                 "Status": "⚠️ Väntar"
             }
@@ -112,4 +112,3 @@ with flik2:
             )
         else:
             st.write("Inga godkända utlägg finns att exportera ännu.")
-
