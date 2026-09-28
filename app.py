@@ -3,6 +3,7 @@ import os
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+import pandas as pd
 import streamlit as st
 
 # =========================================================================
@@ -21,14 +22,24 @@ def ladda_admin_data():
         standard_data = {
             "kategorier": ["Bilersättning", "Kost", "Logi", "Biljetter", "Övrigt"],
             "lag": ["A-lag", "J20", "P15"],
-            "konton": ["4000 Inköp", "5000 Lokaler", "5800 Resekostnader", "6000 Övrigt"],
+            "konton": [
+                "4000 Inköp",
+                "5000 Lokaler",
+                "5800 Resekostnader",
+                "6000 Övrigt",
+            ],
             "anvandare": [],
+            "godkanda_utlagg": [],  # Här sparar vi historiken över godkända kvitton
         }
         with open(DATA_FILE, "w", encoding="utf-8") as f:
             json.dump(standard_data, f, ensure_ascii=False, indent=4)
         return standard_data
     with open(DATA_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+        data = json.load(f)
+        # Säkerställ att listan för godkända utlägg finns
+        if "godkanda_utlagg" not in data:
+            data["godkanda_utlagg"] = []
+        return data
 
 
 def spara_admin_data(data):
@@ -71,7 +82,7 @@ flik_registrera, flik_attestera, flik_admin = st.tabs(
 
 
 # =========================================================================
-# --- FLIK 1: REGISTRERA UTLÄGG (Konto borttaget härifrån) ---
+# --- FLIK 1: REGISTRERA UTLÄGG ---
 # =========================================================================
 with flik_registrera:
     st.title("📝 Registrera nytt utlägg")
@@ -123,7 +134,7 @@ with flik_registrera:
 
 
 # =========================================================================
-# --- FLIK 2: ATTESTFUNKTION (Konto tillagt här för val/ändring) ---
+# --- FLIK 2: ATTESTFUNKTION ---
 # =========================================================================
 with flik_attestera:
     st.title("✅ Attestfunktion")
@@ -132,36 +143,86 @@ with flik_attestera:
     st.divider()
     st.subheader("Ärenden som väntar på godkännande")
 
-    # Exempel på ett väntande ärende (Detta kan senare hämtas live från en databas)
+    # Exempel på ett väntande ärende (Detta simulerar ett inskickat kvitto)
     st.info("📥 **1 nytt utlägg att hantera:**")
 
-    col_info, col_konto = st.columns([2, 1])
+    col_info, col_konto = st.columns(2)
 
     with col_info:
-        st.write("**Inskickat av:** Kalle Karlsson")
-        st.write("**Lag:** A-lag")
-        st.write("**Kategori:** Material (Föreslaget)")
-        st.write("**Belopp:** 1 250,00 kr")
-        st.caption("📄 *Kvitto_matchställ.pdf (Bifogad)*")
+        namn_inskickat = "Kalle Karlsson"
+        lag_inskickat = "A-lag"
+        kat_inskickat = "Material"
+        belopp_inskickat = 1250.00
+        filnamn_inskickat = "Kvitto_matchställ.pdf"
+
+        st.write(f"**Inskickat av:** {namn_inskickat}")
+        st.write(f"**Lag:** {lag_inskickat}")
+        st.write(f"**Kategori:** {kat_inskickat}")
+        st.write(f"**Belopp:** {belopp_inskickat:,.2f} kr")
+        st.caption(f"📄 *{filnamn_inskickat} (Bifogad)*")
 
     with col_konto:
-        # HÄR FÅR ATTESTANTEN VÄLJA OCH KORRIGERA KONTO LIVE
         valt_konto_attest = st.selectbox(
             "Välj/Ändra bokföringskonto:",
             options=admin_data.get("konton", []),
             key="attest_konto_val",
         )
 
-    # Knappar för slutgiltigt beslut
-    col_btn1, col_btn2, _ = st.columns([1, 1, 2])
+    col_btn1, col_btn2, _ = st.columns(3)
     with col_btn1:
-        if st.button("👍 Godkänn & Boka", type="primary"):
+        # ÄNDRAT HÄR: HETER NU BARA "GODKÄNN"
+        if st.button("👍 Godkänn", type="primary"):
+            # Skapa ett objekt med all information om det godkända utlägget
+            nytt_godkant = {
+                "Inskickat av": namn_inskickat,
+                "Lag": lag_inskickat,
+                "Kategori": kat_inskickat,
+                "Belopp (kr)": belopp_inskickat,
+                "Bokföringskonto": valt_konto_attest,
+                "Kvittofil": filnamn_inskickat,
+            }
+
+            # Spara ner i historiken i JSON-filen
+            admin_data["godkanda_utlagg"].append(nytt_godkant)
+            spara_admin_data(admin_data)
+
             st.success(
-                f"Utlägget godkänt och bokfört på konto **{valt_konto_attest}**!"
+                f"Utlägget godkänt! Det har sparats i listan för konto: **{valt_konto_attest}**."
             )
+            st.rerun()
+
     with col_btn2:
         if st.button("👎 Neka utlägg"):
-            st.error("Utlägget har nekats och returnerats till avsändaren.")
+            st.error("Utlägget har nekats.")
+
+    # ---------------------------------------------------------
+    # EXPORTSEKTION: LADDA NER TILL BOKFÖRING
+    # ---------------------------------------------------------
+    st.divider()
+    st.subheader("📦 Exportera godkända utlägg")
+
+    if admin_data["godkanda_utlagg"]:
+        st.write(
+            f"Det finns **{len(admin_data['godkanda_utlagg'])}** godkända utlägg redo att laddas ner."
+        )
+
+        # Gör om historiken till en tabell (Pandas DataFrame)
+        df = pd.DataFrame(admin_data["godkanda_utlagg"])
+
+        # Visa tabellen på skärmen
+        st.dataframe(df)
+
+        # Skapa en CSV-fil för nedladdning
+        csv_data = df.to_csv(index=False, encoding="utf-8-sig", sep=";")
+
+        st.download_button(
+            label="📥 Ladda ner som CSV-fil för bokföring",
+            data=csv_data,
+            file_name="godkanda_utlagg.csv",
+            mime="text/csv",
+        )
+    else:
+        st.caption("Det finns inga godkända utlägg i historiken ännu.")
 
 
 # =========================================================================
@@ -215,47 +276,3 @@ with flik_admin:
                     spara_admin_data(admin_data)
                     st.rerun()
         with col_konto:
-            st.write("**Bokföringskonton:**", admin_data.get("konton", []))
-            nytt_konto = st.text_input(
-                "Nytt konto (t.ex. 4000 Inköp):", key="admin_nytt_konto"
-            )
-            if st.button("➕ Lägg till konto", key="btn_add_konto"):
-                if nytt_konto and nytt_konto not in admin_data["konton"]:
-                    admin_data["konton"].append(nytt_konto)
-                    spara_admin_data(admin_data)
-                    st.rerun()
-
-    # --- SEKTION: PERSONER & LAGKOPPLING ---
-    with st.expander("👥 Hantera Attestanter & Lagkoppling"):
-        st.write("**Registrerade användare och deras ansvarslag:**")
-        for anv in admin_data.get("anvandare", []):
-            lag_str = ", ".join(anv.get("lag", [])) if anv.get("lag") else "Inga lag kopplade"
-            st.text(f"• {anv['namn']} ({anv['epost']}) — Lag: [{lag_str}]")
-
-        st.divider()
-        st.write("**Lägg till ny attestant:**")
-        anv_namn = st.text_input("Namn på person:", key="admin_anv_namn")
-        anv_epost = st.text_input(
-            "E-postadress (för notiser):",
-            placeholder="namn@forening.se",
-            key="admin_anv_epost",
-        )
-        anv_losen = st.text_input(
-            "Ange lösenord/PIN:", type="password", key="admin_anv_losen"
-        )
-        anv_lag = st.multiselect(
-            "Välj vilka lag denna person ska ta emot attest för:",
-            options=admin_data.get("lag", []),
-            key="admin_anv_lag_multi",
-        )
-
-        if st.button("💾 Spara användare och kopplingar", key="btn_save_user"):
-            if anv_namn and anv_epost and anv_losen:
-                ny_anvandare = {
-                    "namn": anv_namn,
-                    "epost": anv_epost,
-                    "losenord": anv_losen,
-                    "lag": anv_lag,
-                }
-                admin_data["anvandare"].append(ny_anvandare)
-                spara_admin_data(admin_data)
