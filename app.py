@@ -90,63 +90,66 @@ with flik_registrera:
     st.title("📝 Registrera nytt utlägg")
     st.write("Fyll i uppgifterna och ladda upp ditt kvitto.")
 
-    # Skapa unika nycklar i session_state för att kunna rensa fälten helt vid skicka
-    if "form_namn" not in st.session_state: st.session_state.form_namn = ""
-    if "form_belopp" not in st.session_state: st.session_state.form_belopp = 0.0
-    if "file_uploader_key" not in st.session_state: st.session_state.file_uploader_key = 0
+    # Tvinga uppladdaren att rensas via en sessionsräknare som ändras vid inskick
+    if "uploader_cleaner" not in st.session_state:
+        st.session_state.uploader_cleaner = 0
 
-    anv_namn_reg = st.text_input("Ditt Namn (Obligatoriskt):", placeholder="t.ex. Johan Larsson", key="form_namn")
+    # Vi lägger allt i ett formulär som rensar fälten helt vid godkänt inskick
+    with st.form("registrera_utlagg_form", clear_on_submit=True):
+        anv_namn_reg = st.text_input("Ditt Namn (Obligatoriskt):", placeholder="t.ex. Johan Larsson")
 
-    aktuella_kategorier = list(admin_data.get("kategorier", []))
-    if "Övrigt" in aktuella_kategorier:
-        aktuella_kategorier.remove("Övrigt")
-        aktuella_kategorier.sort()
-        aktuella_kategorier.append("Övrigt")
+        aktuella_kategorier = list(admin_data.get("kategorier", []))
+        if "Övrigt" in aktuella_kategorier:
+            aktuella_kategorier.remove("Övrigt")
+            aktuella_kategorier.sort()
+            aktuella_kategorier.append("Övrigt")
 
-    valt_lag = st.selectbox("Välj lag/avdelning:", options=admin_data.get("lag", []), key="reg_lag")
-    vald_kategori = st.selectbox("Välj kategori:", options=aktuella_kategorier, key="reg_kat")
-    belopp = st.number_input("Belopp (kr):", min_value=0.0, step=10.0, key="form_belopp")
-    
-    # Filuppladdaren använder en dynamisk nyckel som nollställs vid inskick
-    uppladdad_fil = st.file_uploader("Ladda upp kvitto eller underlag (Obligatoriskt) *", type=["pdf", "png", "jpg", "jpeg"], key=f"kvitto_upload_{st.session_state.file_uploader_key}")
+        valt_lag = st.selectbox("Välj lag/avdelning:", options=admin_data.get("lag", []))
+        vald_kategori = st.selectbox("Välj kategori:", options=aktuella_kategorier)
+        belopp = st.number_input("Belopp (kr):", min_value=0.0, step=10.0)
+        
+        uppladdad_fil = st.file_uploader(
+            "Ladda upp kvitto eller underlag (Obligatoriskt) *", 
+            type=["pdf", "png", "jpg", "jpeg"],
+            key=f"kvitto_file_{st.session_state.uploader_cleaner}"
+        )
 
-    if st.button("Skicka in utlägg", type="primary"):
-        if not anv_namn_reg.strip():
-            st.error("❌ Du måste fylla i ditt namn för att registrera utlägget!")
-        elif not uppladdad_fil:
-            st.error("❌ Du måste ladda upp ett kvitto eller underlag!")
-        elif belopp <= 0:
-            st.warning("⚠️ Vänligen ange ett belopp över 0 kr.")
-        else:
-            nytt_utlagg = {
-                "id": len(admin_data["vantande_utlagg"]) + 1,
-                "namn": anv_namn_reg.strip(),
-                "lag": valt_lag,
-                "kategori": vald_kategori,
-                "belopp": belopp,
-                "filnamn": uppladdad_fil.name
-            }
-            
-            admin_data["vantande_utlagg"].append(nytt_utlagg)
-            spara_admin_data(admin_data)
-            
-            # Skicka mailnotis direkt till kopplad attestant
-            mail_skickat_till = []
-            for anv in admin_data.get("anvandare", []):
-                if valt_lag in anv.get("lag", []):
-                    if skicka_attest_mail(anv["epost"], anv["namn"], valt_lag, belopp, vald_kategori, anv_namn_reg):
-                        mail_skickat_till.append(anv["namn"])
+        skicka_knapp = st.form_submit_button("Skicka in utlägg", type="primary")
 
-            st.success(f"✅ Utlägget på {belopp} kr för {valt_lag} har skickats till kö!")
-            if mail_skickat_till:
-                st.info(f"📧 E-postnotis har skickats till ansvarig attestant: {', '.join(mail_skickat_till)}")
-            
-            # NOLLSTÄLL ALLA FÄLT I GRÄNSSNITTET DIREKT
-            st.session_state.form_namn = ""
-            st.session_state.form_belopp = 0.0
-            st.session_state.file_uploader_key += 1  # Detta tvingar file_uploader att rensas helt
-            
-            st.rerun()
+        if skicka_knapp:
+            if not anv_namn_reg.strip():
+                st.error("❌ Du måste fylla i ditt namn för att registrera utlägget!")
+            elif not uppladdad_fil:
+                st.error("❌ Du måste ladda upp ett kvitto eller underlag!")
+            elif belopp <= 0:
+                st.warning("⚠️ Vänligen ange ett belopp över 0 kr.")
+            else:
+                nytt_utlagg = {
+                    "id": len(admin_data["vantande_utlagg"]) + 1,
+                    "namn": anv_namn_reg.strip(),
+                    "lag": valt_lag,
+                    "kategori": vald_kategori,
+                    "belopp": belopp,
+                    "filnamn": uppladdad_fil.name
+                }
+                
+                admin_data["vantande_utlagg"].append(nytt_utlagg)
+                spara_admin_data(admin_data)
+                
+                # Skicka mailnotis live
+                mail_skickat_till = []
+                for anv in admin_data.get("anvandare", []):
+                    if valt_lag in anv.get("lag", []):
+                        if skicka_attest_mail(anv["epost"], anv["namn"], valt_lag, belopp, vald_kategori, anv_namn_reg):
+                            mail_skickat_till.append(anv["namn"])
+
+                st.success(f"✅ Utlägget på {belopp} kr för {valt_lag} har skickats till kö!")
+                if mail_skickat_till:
+                    st.info(f"📧 E-postnotis har skickats till ansvarig attestant: {', '.join(mail_skickat_till)}")
+                
+                # Ändra nyckeln för att tvinga filuppladdaren att tömmas
+                st.session_state.uploader_cleaner += 1
+                st.rerun()
 
 # --- FLIK 2: ATTESTFUNKTION ---
 with flik_attestera:
@@ -172,7 +175,7 @@ with flik_attestera:
                     st.caption(f"📄 *{utl['filnamn']} (Bifogad)*")
 
                 with col_konto:
-                    # MATCHA OCH HITTA VILKET KONTO SOM SKA VARA FÖRVALT BASERAT PÅ UTTEGNAS KATEGORI
+                    # KOPPLING: Matchar vald kategori mot rätt bokföringskonto automatiskt
                     forval_index = 0
                     for k_idx, konto_namn in enumerate(admin_data.get("konton", [])):
                         if utl['kategori'].lower() in konto_namn.lower():
@@ -182,7 +185,7 @@ with flik_attestera:
                     valt_konto_attest = st.selectbox(
                         "Välj/Ändra bokföringskonto:", 
                         options=admin_data.get("konton", []), 
-                        index=forval_index,  # Kategorin styr nu förvalet direkt!
+                        index=forval_index,
                         key=f"attest_konto_{index}"
                     )
 
@@ -227,3 +230,6 @@ with flik_attestera:
             index_att_radera = int(rad_att_radera.split(":"))
             admin_data["godkanda_utlagg"].pop(index_att_radera)
             spara_admin_data(admin_data)
+            st.success("Utlägget raderades från exportlistan!")
+            st.rerun()
+
