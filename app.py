@@ -7,7 +7,7 @@ import pandas as pd
 import streamlit as st
 
 # =========================================================================
-# 1. INSTÄLLNINGAR FÖR BACKEND (Skriv in dina Workspace-uppgifter här!)
+# 1. GLOBAL KONFIGURATION (Ändra dina Workspace-uppgifter här!)
 # =========================================================================
 DATA_FILE = "admin_data.json"
 
@@ -16,6 +16,8 @@ MAIL_LOSENORD = "lquelydfygnvizqv"           # <-- Ditt 16-siffriga Applösenord
 MAIL_SMTP_SERVER = "://gmail.com"
 MAIL_PORT = 587
 
+# Systemets låsta grunddata enligt dina instruktioner
+STANDARD_LAG = ["Dam Elit", "Herr Elit", "Dam div1", "Herr div2"]
 STANDARD_KONTON = [
     "5800 Biljetter (tåg/buss/flyg/båt)",
     "5830 Kost",
@@ -23,51 +25,68 @@ STANDARD_KONTON = [
     "7330 Bilersättning",
     "2999 Övrigt"
 ]
-STANDARD_LAG = ["Dam Elit", "Herr Elit", "Dam div1", "Herr div2"]
 
-def ladda_admin_data():
+# =========================================================================
+# 2. STORM-SÄKRAD DATAHANTERING (DIREKT MOT FIL)
+# =========================================================================
+def ladda_data():
+    """Läser in data direkt från fil. Reparerar automatiskt vid fel eller tom fil."""
+    default_structure = {
+        "kategorier": ["Bilersättning", "Kost", "Logi", "Biljetter", "Övrigt"],
+        "lag": STANDARD_LAG,
+        "konton": STANDARD_KONTON,
+        "anvandare": [],
+        "vantande_utlagg": [],
+        "godkanda_utlagg": []
+    }
+    
     if not os.path.exists(DATA_FILE):
-        standard_data = {
-            "kategorier": ["Bilersättning", "Kost", "Logi", "Biljetter", "Övrigt"],
-            "lag": STANDARD_LAG,
-            "konton": STANDARD_KONTON,
-            "anvandare": [],
-            "vantande_utlagg": [],
-            "godkanda_utlagg": []
-        }
         with open(DATA_FILE, "w", encoding="utf-8") as f:
-            json.dump(standard_data, f, ensure_ascii=False, indent=4)
-        return standard_data
+            json.dump(default_structure, f, ensure_ascii=False, indent=4)
+        return default_structure
 
-    with open(DATA_FILE, "r", encoding="utf-8") as f:
-        try:
+    try:
+        with open(DATA_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-        except:
-            data = {}
-        
-        # Säkerställ att inga nycklar försvinner eller nollställs
-        if "godkanda_utlagg" not in data: data["godkanda_utlagg"] = []
-        if "vantande_utlagg" not in data: data["vantande_utlagg"] = []
+            
+        # Säkerställ att inga nycklar eller listor saknas
+        if not data or not isinstance(data, dict): data = default_structure
+        if "kategorier" not in data or not data["kategorier"]: data["kategorier"] = default_structure["kategorier"]
         if "anvandare" not in data: data["anvandare"] = []
-        if "kategorier" not in data: data["kategorier"] = ["Bilersättning", "Kost", "Logi", "Biljetter", "Övrigt"]
+        if "vantande_utlagg" not in data: data["vantande_utlagg"] = []
+        if "godkanda_utlagg" not in data: data["godkanda_utlagg"] = []
         
+        # Tvinga alltid dina exakta lag och konton
         data["lag"] = STANDARD_LAG
         data["konton"] = STANDARD_KONTON
         return data
+    except:
+        # Om filen är korrupt på disk, rädda appen genom att skriva över med standard
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(default_structure, f, ensure_ascii=False, indent=4)
+        return default_structure
 
-def spara_admin_data(data):
+def spara_data(data):
+    """Skriver data direkt till filen i realtid."""
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
 
-def skicka_attest_mail(till_epost, attestant_namn, lag_namn, belopp, kategori, inskickat_av):
+def skicka_mail(till_epost, attestant_namn, lag_namn, belopp, kategori, inskickat_av):
+    """Skickar automatisk e-postnotis via SMTP."""
     msg = MIMEMultipart()
     msg["From"] = MAIL_AVSANDARE
     msg["To"] = till_epost
     msg["Subject"] = f"Nytt utlägg att attestera - {lag_namn}"
-
-    text = f"Hej {attestant_namn},\n\nEtt nytt utlägg har registrerats av {inskickat_av} för {lag_namn} och väntar på din attest.\n\n• Kategori: {kategori}\n• Belopp: {belopp} kr\n\nLogga in i appen för att godkänna ärendet."
-
-    msg.attach(MIMEText(text, "plain", "utf-8"))
+    
+    body = (
+        f"Hej {attestant_namn},\n\n"
+        f"Ett nytt utlägg har registrerats av {inskickat_av} för {lag_namn} och väntar på din attest.\n\n"
+        f"• Kategori: {kategori}\n"
+        f"• Belopp: {belopp} kr\n\n"
+        f"Logga in i appen för att granska underlaget.\n\n"
+        f"Med vänlig hälsning,\nEkonomisystemet"
+    )
+    msg.attach(MIMEText(body, "plain", "utf-8"))
     try:
         server = smtplib.SMTP(MAIL_SMTP_SERVER, MAIL_PORT)
         server.starttls()
@@ -78,12 +97,11 @@ def skicka_attest_mail(till_epost, attestant_namn, lag_namn, belopp, kategori, i
     except:
         return False
 
-# Ladda data i ett tidigt skede
-if "admin_data" not in st.session_state:
-    st.session_state.admin_data = ladda_admin_data()
+# Läs in dagsfärsk data direkt vid sidladdning
+nuvarande_data = ladda_data()
 
 # =========================================================================
-# 2. SKAPA DE TRE FLIKARNA
+# 3. GRÄNSSNITT MED DE TRE UNIKA FLIKARNA
 # =========================================================================
 flik_registrera, flik_attestera, flik_admin = st.tabs([
     "📝 Registrera Utlägg", 
@@ -91,141 +109,126 @@ flik_registrera, flik_attestera, flik_admin = st.tabs([
     "⚙️ Adminpanel"
 ])
 
-# --- FLIK 1: REGISTRERA UTLÄGG ---
+# -------------------------------------------------------------------------
+# FLIK 1: REGISTRERA UTLÄGG
+# -------------------------------------------------------------------------
 with flik_registrera:
     st.title("📝 Registrera nytt utlägg")
     st.write("Fyll i uppgifterna och ladda upp ditt kvitto.")
 
-    if "uploader_cleaner" not in st.session_state:
-        st.session_state.uploader_cleaner = 0
+    # Sessions-nyckel för att kunna tvinga filuppladdaren att tömmas vid inskick
+    if "clean_uploader_trigger" not in st.session_state:
+        st.session_state.clean_uploader_trigger = 0
 
-    with st.form("registrera_utlagg_form", clear_on_submit=True):
-        anv_namn_reg = st.text_input("Ditt Namn (Obligatoriskt):", placeholder="t.ex. Johan Larsson")
-
-        aktuella_kategorier = list(st.session_state.admin_data.get("kategorier", []))
-        if "Övrigt" in aktuella_kategorier:
-            aktuella_kategorier.remove("Övrigt")
-            aktuella_kategorier.sort()
-            aktuella_kategorier.append("Övrigt")
-
-        valt_lag = st.selectbox("Välj lag/avdelning:", options=st.session_state.admin_data.get("lag", []))
-        vald_kategori = st.selectbox("Välj kategori:", options=aktuella_kategorier)
-        belopp = st.number_input("Belopp (kr):", min_value=0.0, step=10.0)
+    # clear_on_submit=True tömmer automatiskt alla text/nummerfält vid lyckat tryck
+    with st.form("utlagg_form_huvud", clear_on_submit=True):
+        namn_input = st.text_input("Ditt Namn (Obligatoriskt):", placeholder="t.ex. Johan Larsson")
         
-        uppladdad_fil = st.file_uploader(
+        # Sortera kategorier snyggt (Övrigt sist)
+        kat_lista = list(nuvarande_data["kategorier"])
+        if "Övrigt" in kat_lista:
+            kat_lista.remove("Övrigt")
+            kat_lista.sort()
+            kat_lista.append("Övrigt")
+            
+        lag_val = st.selectbox("Välj lag/avdelning:", options=nuvarande_data["lag"])
+        kat_val = st.selectbox("Välj kategori:", options=kat_lista)
+        belopp_val = st.number_input("Belopp (kr):", min_value=0.0, step=10.0, value=0.0)
+        
+        fil_val = st.file_uploader(
             "Ladda upp kvitto eller underlag (Obligatoriskt) *", 
             type=["pdf", "png", "jpg", "jpeg"],
-            key=f"kvitto_file_{st.session_state.uploader_cleaner}"
+            key=f"uploader_id_{st.session_state.clean_uploader_trigger}"
         )
-
+        
         skicka_knapp = st.form_submit_button("Skicka in utlägg", type="primary")
 
         if skicka_knapp:
-            if not anv_namn_reg.strip():
-                st.error("❌ Du måste fylla i ditt namn för att registrera utlägget!")
-            elif not uppladdad_fil:
-                st.error("❌ Du måste ladda upp ett kvitto eller underlag!")
-            elif belopp <= 0:
-                st.warning("⚠️ Vänligen ange ett belopp över 0 kr.")
+            if not namn_input.strip():
+                st.error("❌ Du måste fylla i ditt namn!")
+            elif not fil_val:
+                st.error("❌ Du måste bifoga en kvittofil/underlag!")
+            elif belopp_val <= 0:
+                st.warning("⚠️ Beloppet måste vara högre än 0 kr.")
             else:
-                nytt_utlagg = {
-                    "id": len(st.session_state.admin_data["vantande_utlagg"]) + 1,
-                    "namn": anv_namn_reg.strip(),
-                    "lag": valt_lag,
-                    "kategori": vald_kategori,
-                    "belopp": belopp,
-                    "filnamn": uppladdad_fil.name
+                # Bygg utläggsobjektet
+                nytt_id = len(nuvarande_data["vantande_utlagg"]) + len(nuvarande_data["godkanda_utlagg"]) + 1
+                utl_objekt = {
+                    "id": nytt_id,
+                    "namn": namn_input.strip(),
+                    "lag": lag_val,
+                    "kategori": kat_val,
+                    "belopp": belopp_val,
+                    "filnamn": fil_val.name
                 }
                 
-                st.session_state.admin_data["vantande_utlagg"].append(nytt_utlagg)
-                spara_admin_data(st.session_state.admin_data)
+                # Spara direkt till hårddisken
+                nuvarande_data["vantande_utlagg"].append(utl_objekt)
+                spara_data(nuvarande_data)
                 
-                mail_skickat_till = []
-                for anv in st.session_state.admin_data.get("anvandare", []):
-                    if valt_lag in anv.get("lag", []):
-                        if skicka_attest_mail(anv["epost"], anv["namn"], valt_lag, belopp, vald_kategori, anv_namn_reg):
-                            mail_skickat_till.append(anv["namn"])
-
-                st.success(f"✅ Utlägget på {belopp} kr för {valt_lag} har skickats till kö!")
-                if mail_skickat_till:
-                    st.info(f"📧 E-postnotis har skickats till ansvarig attestant: {', '.join(mail_skickat_till)}")
+                # Sök efter kopplade attestanter och skicka mail live
+                notifierade = []
+                for a in nuvarande_data["anvandare"]:
+                    if lag_val in a.get("lag", []):
+                        if skicka_mail(a["epost"], a["namn"], lag_val, belopp_val, kat_val, namn_input.strip()):
+                            notifierade.append(a["namn"])
                 
-                st.session_state.uploader_cleaner += 1
+                st.success(f"✅ Utlägget på {belopp_val} kr för {lag_val} har skickats till kön!")
+                if notifierade:
+                    st.info(f"📧 E-postnotis har skickats till: {', '.join(notifierade)}")
+                
+                # Tvinga filuppladdaren att nollställas vid nästa rendering
+                st.session_state.clean_uploader_trigger += 1
                 st.rerun()
 
-# --- FLIK 2: ATTESTFUNKTION ---
+# -------------------------------------------------------------------------
+# FLIK 2: ATTESTFUNKTION
+# -------------------------------------------------------------------------
 with flik_attestera:
     st.title("✅ Attestfunktion")
     st.write("Granska inskickade underlag live och tilldela bokföringskonto.")
     st.divider()
 
     st.subheader("Ärenden som väntar på godkännande")
-    vantande = st.session_state.admin_data.get("vantande_utlagg", [])
+    kö_lista = nuvarande_data["vantande_utlagg"]
     
-    if len(vantande) == 0:
-        st.info("📥 Inga nya utlägg ligger i kön just nu.")
+    if not kö_lista:
+        st.info("📥 Inga nya utlägg ligger i kön just nu. Bra jobbat!")
     else:
-        for index, utl in enumerate(vantande):
+        for idx, utl in enumerate(kö_lista):
             with st.container(border=True):
-                col_info, col_konto = st.columns(2)
+                col_vänster, col_höger = st.columns(2)
                 
-                with col_info:
+                with col_vänster:
                     st.write(f"**Inskickat av:** {utl['namn']}")
                     st.write(f"**Lag:** {utl['lag']}")
                     st.write(f"**Kategori:** {utl['kategori']}")
                     st.write(f"**Belopp:** {utl['belopp']:,.2f} kr")
-                    st.caption(f"📄 *{utl['filnamn']} (Bifogad)*")
-
-                with col_konto:
-                    forval_index = 0
-                    for k_idx, konto_namn in enumerate(st.session_state.admin_data.get("konton", [])):
-                        if utl['kategori'].lower() in konto_namn.lower():
-                            forval_index = k_idx
+                    st.caption(f"📄 *Fil: {utl['filnamn']}*")
+                
+                with col_höger:
+                    # KOPPLING: Hittar automatiskt rätt konto baserat på utläggets valda kategori
+                    konto_index = 0
+                    for k_idx, k_namn in enumerate(nuvarande_data["konton"]):
+                        if utl["kategori"].lower() in k_namn.lower():
+                            konto_index = k_idx
                             break
                     
-                    valt_konto_attest = st.selectbox(
-                        "Välj/Ändra bokföringskonto:", 
-                        options=st.session_state.admin_data.get("konton", []), 
-                        index=forval_index,
-                        key=f"attest_konto_{index}"
+                    valt_konto = st.selectbox(
+                        "Välj/Ändra bokföringskonto:",
+                        options=nuvarande_data["konton"],
+                        index=konto_index,
+                        key=f"attest_select_{utl['id']}_{idx}"
                     )
-
-                col_btn1, col_btn2, _ = st.columns(3)
-                with col_btn1:
-                    if st.button("👍 Godkänn", key=f"godkand_{index}", type="primary"):
-                        nytt_godkant = {
+                
+                btn_col1, btn_col2, _ = st.columns(3)
+                with btn_col1:
+                    if st.button("👍 Godkänn", key=f"btn_godkand_{utl['id']}_{idx}", type="primary"):
+                        godkänt_objekt = {
                             "Inskickat av": utl["namn"],
                             "Lag": utl["lag"],
                             "Kategori": utl["kategori"],
                             "Belopp (kr)": utl["belopp"],
-                            "Bokföringskonto": valt_konto_attest,
+                            "Bokföringskonto": valt_konto,
                             "Kvittofil": utl["filnamn"]
                         }
-                        st.session_state.admin_data["godkanda_utlagg"].append(nytt_godkant)
-                        st.session_state.admin_data["vantande_utlagg"].pop(index)
-                        spara_admin_data(st.session_state.admin_data)
-                        st.success("Utlägget godkänt!")
-                        st.rerun()
-
-                with col_btn2:
-                    if st.button("👎 Neka", key=f"neka_{index}"):
-                        st.session_state.admin_data["vantande_utlagg"].pop(index)
-                        spara_admin_data(st.session_state.admin_data)
-                        st.warning("Utlägget nekades.")
-                        st.rerun()
-
-    st.divider()
-    st.subheader("📦 Exportera godkända utlägg")
-    godkanda = st.session_state.admin_data.get("godkanda_utlagg", [])
-    
-    if godkanda:
-        st.write(f"Det finns **{len(godkanda)}** godkända utlägg i historiken.")
-        df = pd.DataFrame(godkanda)
-        st.dataframe(df, use_container_width=True)
-        
-        st.write("**Rensa i historiken innan export:**")
-        rader_att_valja = [f"{i}: {x['Inskickat av']} - {x['Belopp (kr)']} kr ({x['Lag']})" for i, x in enumerate(godkanda)]
-        rad_att_radera = st.selectbox("Välj utlägg att städa bort:", options=["---"] + rader_att_valja)
-        
-        if st.button("🗑️ Ta bort valt utlägg från listan") and rad_att_radera != "---":
-            index_att_radera = int(rad_att_radera.split(":"))
