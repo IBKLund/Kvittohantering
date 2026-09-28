@@ -56,7 +56,7 @@ with flik1:
                 "Kategori": kategori,
                 "Konto": KONTO_KARTOR[kategori],
                 "Belopp": belopp,
-                "Beskrivning": beskrivning,
+                "Beskrivning":Core = beskrivning,
                 "Kvitto_Fil": sparad_filnamn,
                 "Status": "⚠️ Väntar"
             }
@@ -74,7 +74,7 @@ with flik2:
     if losenord == "styrelsen123":
         st.subheader("Ärenden som väntar på attest")
         
-ventande = df[df["Status"] == "⚠️ Väntar"]
+        ventande = df[df["Status"] == "⚠️ Väntar"]
         
         if ventande.empty:
             st.info("Inga nya utlägg att hantera just nu.")
@@ -112,3 +112,4 @@ ventande = df[df["Status"] == "⚠️ Väntar"]
             )
         else:
             st.write("Inga godkända utlägg finns att exportera ännu.")
+
