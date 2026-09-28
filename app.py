@@ -23,10 +23,10 @@ def ladda_admin_data():
             "kategorier": ["Bilersättning", "Kost", "Logi", "Biljetter", "Övrigt"],
             "lag": ["A-lag", "J20", "P15"],
             "konton": [
-                "5800 Biljetter (buss/tåg/flyg/båt)",
-                "5830 Kost",
-                "5831 Logi",
-                "7330 Bilersättning",
+                "4000 Inköp",
+                "5000 Lokaler",
+                "5800 Resekostnader",
+                "6000 Övrigt",
             ],
             "anvandare": [],
             "godkanda_utlagg": [],
@@ -38,6 +38,10 @@ def ladda_admin_data():
         data = json.load(f)
         if "godkanda_utlagg" not in data:
             data["godkanda_utlagg"] = []
+        if "anvandare" not in data:
+            data["anvandare"] = []
+        if "lag" not in data:
+            data["lag"] = []
         return data
 
 
@@ -51,9 +55,7 @@ def skicka_attest_mail(till_epost, attestant_namn, lag_namn, belopp, kategori):
     msg["From"] = MAIL_AVSANDARE
     msg["To"] = till_epost
     msg["Subject"] = f"Nytt utlägg att attestera - {lag_namn}"
-
-    text = f"Hej {attestant_namn},\nEtt nytt utlägg har registrerats för {lag_namn} och väntar på din attest.\n• Kategori: {kategori}\n• Belopp: {belopp} kr\nLogga in för att välja konto och godkänna utlägget."
-
+    text = f"Hej {attestant_namn},\nEtt nytt utlägg har registrerats för {lag_namn} och väntar på din attest."
     msg.attach(MIMEText(text, "plain", "utf-8"))
     try:
         server = smtplib.SMTP(MAIL_SMTP_SERVER, MAIL_PORT)
@@ -75,10 +77,7 @@ flik_registrera, flik_attestera, flik_admin = st.tabs(
     ["📝 Registrera Utlägg", "✅ Attestfunktion", "⚙️ Adminpanel"]
 )
 
-
-# =========================================================================
 # --- FLIK 1: REGISTRERA UTLÄGG ---
-# =========================================================================
 with flik_registrera:
     st.title("📝 Registrera nytt utlägg")
     st.write("Fyll i uppgifterna och ladda upp ditt kvitto.")
@@ -98,7 +97,6 @@ with flik_registrera:
     belopp = st.number_input(
         "Belopp (kr):", min_value=0.0, step=10.0, value=0.0, key="reg_belopp"
     )
-
     uppladdad_fil = st.file_uploader(
         "Ladda upp kvitto eller underlag (Obligatoriskt) *",
         type=["pdf", "png", "jpg", "jpeg"],
@@ -115,7 +113,6 @@ with flik_registrera:
             st.success(
                 f"✅ Utlägget på {belopp} kr för {valt_lag} har skickats till attest!"
             )
-
             for anv in admin_data.get("anvandare", []):
                 if valt_lag in anv.get("lag", []):
                     skicka_attest_mail(
@@ -126,20 +123,15 @@ with flik_registrera:
                         vald_kategori,
                     )
 
-
-# =========================================================================
 # --- FLIK 2: ATTESTFUNKTION ---
-# =========================================================================
 with flik_attestera:
     st.title("✅ Attestfunktion")
     st.write("Granska inskickade underlag och tilldela bokföringskonto.")
-
     st.divider()
     st.subheader("Ärenden som väntar på godkännande")
     st.info("📥 **1 nytt utlägg att hantera:**")
 
     col_info, col_konto = st.columns(2)
-
     with col_info:
         namn_inskickat = "Kalle Karlsson"
         lag_inskickat = "A-lag"
@@ -182,11 +174,7 @@ with flik_attestera:
 
     st.divider()
     st.subheader("📦 Exportera godkända utlägg")
-
     if admin_data["godkanda_utlagg"]:
-        st.write(
-            f"Det finns **{len(admin_data['godkanda_utlagg'])}** godkända utlägg."
-        )
         df = pd.DataFrame(admin_data["godkanda_utlagg"])
         st.dataframe(df)
         csv_data = df.to_csv(index=False, encoding="utf-8-sig", sep=";")
@@ -199,14 +187,11 @@ with flik_attestera:
     else:
         st.caption("Det finns inga godkända utlägg i historiken ännu.")
 
-
-# =========================================================================
 # --- FLIK 3: ADMINPANEL ---
-# =========================================================================
 with flik_admin:
     st.title("⚙️ Administratörspanel")
 
-    with st.expander("📁 Hantera Kategorier (Utläggstyper)", expanded=True):
+    with st.expander("📁 Hantera Kategorier (Utläggstyper)", expanded=False):
         st.write(
             f"**Aktuella kategorier:** {', '.join(admin_data['kategorier'])}"
         )
@@ -238,7 +223,7 @@ with flik_admin:
                 st.warning(f"'{kat_att_ta_bort}' borttagen!")
                 st.rerun()
 
-    with st.expander("🏃‍♂️ & 🧾 Hantera Lag och Konton"):
+    with st.expander("🏃‍♂️ & 🧾 Hantera Lag och Konton", expanded=False):
         col_lag, col_konto_admin = st.columns(2)
         with col_lag:
             st.write("**Registrerade lag:**", admin_data.get("lag", []))
@@ -259,8 +244,25 @@ with flik_admin:
                     spara_admin_data(admin_data)
                     st.rerun()
 
-    with st.expander("👥 Hantera Attestanter & Lagkoppling"):
-        st.write("**Registrerade användare och deras ansvarslag:**")
-        for anv in admin_data.get("anvandare", []):
-            mina_lag = anv.get("lag", [])
-            lag_str = ", ".join(mina_lag) if mina_lag else "Inga lag"
+    # UPPDATERAD SEKTION FOR ATT SÄKRA SPARANDET
+    with st.expander("👥 Hantera Attestanter & Lagkoppling", expanded=True):
+        st.subheader("Registrerade användare och ansvarsområden")
+
+        if admin_data.get("anvandare"):
+            # Skapa en ren tabellvy över användarna för bättre kontroll
+            anv_list = []
+            for anv in admin_data["anvandare"]:
+                anv_list.append(
+                    {
+                        "Namn": anv["namn"],
+                        "E-post": anv["epost"],
+                        "Kopplade Lag": ", ".join(anv.get("lag", [])),
+                    }
+                )
+            st.dataframe(pd.DataFrame(anv_list), use_container_width=True)
+        else:
+            st.info("Inga attestanter har registrerats ännu.")
+
+        st.divider()
+        st.subheader("Lägg till ny attestant")
+
