@@ -1,136 +1,160 @@
-import streamlit as st
-import pandas as pd
+import json
 import os
-from datetime import datetime
+import streamlit as st
 
-# Inställningar för mappar och filer
-KVITTO_MAPP = "sparade_kvitton"
-DATA_FIL = "utlagg_data.csv"
+# 1. INSTÄLLNING FÖR DEN BAKOMLIGGANDE DATA-FILEN
+DATA_FILE = "admin_data.json"
 
-if not os.path.exists(KVITTO_MAPP):
-    os.makedirs(KVITTO_MAPP)
 
-# Standardkonton enligt BAS-kontoplanen (Går att ändra live av admin)
-KONTO_KARTOR = {
-    "Bilersättning": "5841",
-    "Logi": "5820",
-    "Kost": "6071",
-    "Biljett (flyg/tåg/buss)": "5810",
-    "Övrigt": "6990"
-}
+def ladda_admin_data():
+    """Läser in inställningar från filen. Skapar standarddata om filen inte finns."""
+    if not os.path.exists(DATA_FILE):
+        standard_data = {
+            "kategorier": ["Bilersättning", "Kost", "Logi", "Biljetter", "Övrigt"],
+            "lag": ["A-lag", "J20", "P15"],
+            "konton": ["4000", "5000", "6000"],
+            "anvandare": [{"namn": "Anna", "roll": "Huvudadmin"}],
+        }
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(standard_data, f, ensure_ascii=False, indent=4)
+        return standard_data
 
-# Lista över lag (Ändra dessa så att de matchar er förening!)
-LAG_LISTA = ["A-laget Herr", "A-laget Dam", "Juniorer U19", "Pojkar U15", "Flickor U15", "Styrelse/Kansli"]
-FORENING_NAMN = "Idrottsföreningen" # Er standardförening
+    with open(DATA_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
 
-# Läs in befintlig data
-if os.path.exists(DATA_FIL):
-    df = pd.read_csv(DATA_FIL, dtype={"Konto": str})
-else:
-    df = pd.DataFrame(columns=["ID", "Datum", "Namn", "Kategori", "Konto", "Belopp", "Beskrivning", "Lag", "Förening", "Kvitto_Fil", "Status"])
 
-st.title("Föreningens Utläggshantering 💰")
+def spara_admin_data(data):
+    """Sparar alla ändringar till JSON-filen."""
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
-flik1, flik2 = st.tabs(["Inskickning (Medlem)", "Attestering & Export (Styrelse)"])
 
-with flik1:
-    st.header("Registrera nytt utlägg")
-    
-    medlem_namn = st.text_input("Ditt namn")
-    lag = st.selectbox("Vilket lag tillhör du?", LAG_LISTA)
-    kategori = st.selectbox("Kategori", list(KONTO_KARTOR.keys()))
-    belopp = st.number_input("Belopp (kr)", min_value=1, step=1)
-    beskrivning = st.text_area("Vad avser utlägget? (t.ex. 'Bensin till bortamatch')")
-    kvitto_fil = st.file_uploader("Ladda upp kvitto (Bild/PDF)", type=["png", "jpg", "jpeg", "pdf"])
-    
-    if st.button("Skicka in för godkännande"):
-        if medlem_namn and belopp and kvitto_fil:
-            utlagg_id = f"UT-{int(datetime.now().timestamp())}"
-            
-            # Spara kvittofilen lokalt
-            fil_andelse = kvitto_fil.name.split(".")[-1]
-            sparad_filnamn = f"{utlagg_id}_kvitto.{fil_andelse}"
-            sökväg = os.path.join(KVITTO_MAPP, sparad_filnamn)
-            with open(sökväg, "wb") as f:
-                f.write(kvitto_fil.getbuffer())
-            
-            # Lägg till i data-tabellen
-            ny_rad = {
-                "ID": utlagg_id,
-                "Datum": datetime.now().strftime("%Y-%m-%d"),
-                "Namn": medlem_namn,
-                "Kategori": kategori,
-                "Konto": KONTO_KARTOR[kategori],
-                "Belopp": belopp,
-                "Beskrivning": beskrivning,
-                "Lag": lag,
-                "Förening": FORENING_NAMN,
-                "Kvitto_Fil": sparad_filnamn,
-                "Status": "⚠️ Väntar"
-            }
-            
-            df = pd.concat([df, pd.DataFrame([ny_rad])], ignore_index=True)
-            df.to_csv(DATA_FIL, index=False)
-            st.success(f"Utlägg inskickat! ID: {utlagg_id}")
-        else:
-            st.error("Vänligen fyll i alla fält och bifoga ett kvitto.")
+# Hämta aktuell data när appen laddas
+admin_data = ladda_admin_data()
 
-with flik2:
-    st.header("Styrelsens hantering")
-    
-    losenord = st.text_input("Ange lösenord för styrelsen", type="password")
-    if losenord == "styrelsen123":
-        st.subheader("Ärenden som väntar på attest")
-        
-        # Filtrera fram väntande
-        df_ventande = df[df["Status"] == "⚠️ Väntar"]
-        
-        if df_ventande.empty:
-            st.info("Inga nya utlägg att hantera just nu.")
-        else:
-            for idx, rad in df_ventande.iterrows():
-                st.markdown(f"### Utlägg från {rad['Namn']} ({rad['Lag']})")
-                
-                # Inmatningsfält för korrigeringar live under attestering
-                col_k1, col_k2, col_k3 = st.columns(3)
-                justerat_konto = col_k1.text_input("Bokföringskonto", value=str(rad['Konto']), key=f"konto_{rad['ID']}")
-                justerat_lag = col_k2.selectbox("Lag/Sektion", LAG_LISTA, index=LAG_LISTA.index(rad['Lag']) if rad['Lag'] in LAG_LISTA else 0, key=f"lag_{rad['ID']}")
-                justerad_forening = col_k3.text_input("Förening", value=str(rad['Förening']), key=f"for_{rad['ID']}")
-                
-                st.write(f"**Kategori:** {rad['Kategori']} | **Belopp:** {rad['Belopp']} kr")
-                st.write(f"*Beskrivning:* {rad['Beskrivning']}")
-                st.caption(f"Bifogad kvittofil: {rad['Kvitto_Fil']}")
-                
-                col1, col2, col3 = st.columns([1, 1, 2])
-                if col1.button("✅ Godkänn", key=f"g_{rad['ID']}"):
-                    df.at[idx, "Konto"] = justerat_konto
-                    df.at[idx, "Lag"] = justerat_lag
-                    df.at[idx, "Förening"] = justerad_forening
-                    df.at[idx, "Status"] = "✅ Godkänd"
-                    df.to_csv(DATA_FIL, index=False)
-                    st.rerun()
-                if col2.button("❌ Neka", key=f"n_{rad['ID']}"):
-                    df.at[idx, "Status"] = "❌ Nekad"
-                    df.to_csv(DATA_FIL, index=False)
-                    st.rerun()
-                    
-                st.divider()
-        
-        st.subheader("Exportera godkända underlag till Spiris")
-        df_godkanda = df[df["Status"] == "✅ Godkänd"]
-        
-        if not df_godkanda.empty:
-            st.dataframe(df_godkanda[["ID", "Datum", "Namn", "Förening", "Lag", "Konto", "Belopp", "Beskrivning", "Kvitto_Fil"]])
-            
-            # Skapa den slutgiltiga exportfilen formaterad för bokföringen
-            csv_export = df_godkanda[["Datum", "Förening", "Lag", "Konto", "Belopp", "Beskrivning", "Kvitto_Fil"]]
-            csv_data = csv_export.to_csv(index=False)
-            
-            st.download_button(
-                label="Ladda ner CSV för Spiris",
-                data=csv_data,
-                file_name=f"spiris_import_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv"
+
+# 2. SKAPA SKÄRMFLIKARNA I APPEN
+flik_attest, flik_admin = st.tabs(["📋 Registrera Attest", "⚙️ Adminpanel"])
+
+
+# =========================================================================
+# --- FLIK 1: REGISTRERA ATTEST (Den vanliga vyn för användare) ---
+# =========================================================================
+with flik_attest:
+    st.title("📋 Attestera och registrera utlägg")
+    st.write("Fyll i uppgifterna nedan för att skicka in ditt utlägg.")
+
+    # Sortera kategorierna så att 'Övrigt' alltid hamnar sist i rullistan
+    aktuella_kategorier = list(admin_data.get("kategorier", []))
+    if "Övrigt" in aktuella_kategorier:
+        aktuella_kategorier.remove("Övrigt")
+        aktuella_kategorier.sort()
+        aktuella_kategorier.append("Övrigt")
+
+    # HÄMTA DATA TILL RULLISTORNA FRÅN ADMINPANELEN
+    vald_kategori = st.selectbox(
+        "Välj kategori:",
+        options=aktuella_kategorier,
+        placeholder="Välj...",
+    )
+    valt_lag = st.selectbox(
+        "Välj lag/avdelning:", options=admin_data.get("lag", [])
+    )
+    valt_konto = st.selectbox(
+        "Välj bokföringskonto:", options=admin_data.get("konton", [])
+    )
+
+    belopp = st.number_input("Belopp (kr):", min_value=0.0, step=10.0)
+
+    if st.button("Skicka in för attest"):
+        st.success(
+            f"Utlägget på {belopp} kr för {valt_lag} inom kategorin '{vald_kategori}' har skickats!"
+        )
+
+
+# =========================================================================
+# --- FLIK 2: ADMINPANEL (Här styr du allt i realtid) ---
+# =========================================================================
+with flik_admin:
+    st.title("⚙️ Administratörspanel")
+    st.caption(
+        "Här styr du allt som visas i appens rullistor och hanterar behörigheter."
+    )
+
+    # --- SEKTION: KATEGORIER ---
+    with st.expander("📁 Hantera Kategorier (Utläggstyper)", expanded=True):
+        st.write(
+            f"**Aktuella kategorier:** {', '.join(admin_data['kategorier'])}"
+        )
+
+        col1, col2 = st.columns(2)
+        with col1:
+            ny_kat = st.text_input(
+                "Lägg till ny kategori:", placeholder="t.ex. Kläder"
             )
-        else:
-            st.write("Inga godkända utlägg finns att exportera ännu.")
+            if st.button("➕ Lägg till", key="add_kat"):
+                if ny_kat and ny_kat not in admin_data["kategorier"]:
+                    admin_data["kategorier"].append(ny_kat)
+                    spara_admin_data(admin_data)
+                    st.success(f"'{ny_kat}' tillagd!")
+                    st.rerun()
+
+        with col2:
+            kat_att_ta_bort = st.selectbox(
+                "Ta bort en kategori:",
+                options=["---"] + admin_data["kategorier"],
+            )
+            if (
+                st.button("🗑️ Ta bort", key="del_kat")
+                and kat_att_ta_bort != "---"
+            ):
+                admin_data["kategorier"].remove(kat_att_ta_bort)
+                spara_admin_data(admin_data)
+                st.warning(f"'{kat_att_ta_bort}' borttagen!")
+                st.rerun()
+
+    # --- SEKTION: LAG & KONTON ---
+    with st.expander("🏃‍♂️ & 🧾 Hantera Lag och Konton"):
+        col_lag, col_konto = st.columns(2)
+
+        with col_lag:
+            st.write("**Registrerade lag:**", admin_data.get("lag", []))
+            nytt_lag = st.text_input("Nytt lag:")
+            if st.button("➕ Lägg till lag"):
+                if nytt_lag and nytt_lag not in admin_data["lag"]:
+                    admin_data["lag"].append(nytt_lag)
+                    spara_admin_data(admin_data)
+                    st.rerun()
+
+        with col_konto:
+            st.write("**Bokföringskonton:**", admin_data.get("konton", []))
+            nytt_konto = st.text_input("Nytt konto (nummer):")
+            if st.button("➕ Lägg till konto"):
+                if nytt_konto and nytt_konto not in admin_data["konton"]:
+                    admin_data["konton"].append(nytt_konto)
+                    spara_admin_data(admin_data)
+                    st.rerun()
+
+    # --- SEKTION: PERSONER & LÖSENORD ---
+    with st.expander("👥 Hantera Attestanter & Lösenord"):
+        st.write("**Användare i systemet:**")
+        for anv in admin_data.get("anvandare", []):
+            st.text(f"• {anv['namn']} ({anv['roll']})")
+
+        st.divider()
+        st.write("**Lägg till ny attestant:**")
+        anv_namn = st.text_input("Namn på person:")
+        anv_losen = st.text_input("Ange lösenord/PIN:", type="password")
+        anv_roll = st.selectbox("Behörighetsnivå:", ["Attestant", "Huvudadmin"])
+
+        if st.button("💾 Spara användare"):
+            if anv_namn and anv_losen:
+                ny_anvandare = {
+                    "namn": anv_namn,
+                    "losenord": anv_losen,
+                    "roll": anv_roll,
+                }
+                admin_data["anvandare"].append(ny_anvandare)
+                spara_admin_data(admin_data)
+                st.success(f"{anv_namn} har lagts till!")
+                st.rerun()
