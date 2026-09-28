@@ -34,8 +34,8 @@ def ladda_admin_data():
             "lag": STANDARD_LAG,
             "konton": STANDARD_KONTON,
             "anvandare": [],
-            "vantande_utlagg": [],  # Kö för inskickade kvitton
-            "godkanda_utlagg": [],  # Historik för CSV
+            "vantande_utlagg": [],
+            "godkanda_utlagg": [],
         }
         with open(DATA_FILE, "w", encoding="utf-8") as f:
             json.dump(standard_data, f, ensure_ascii=False, indent=4)
@@ -110,13 +110,12 @@ with flik_registrera:
 
     if st.button("Skicka in utlägg", type="primary"):
         if not anv_namn_reg.strip():
-            st.error("❌ Du måste fylla i ditt namn för att registrera utlägget!")
+            st.error("❌ Du måste fylla i ditt namn för att registrar utlägget!")
         elif not uppladdad_fil:
             st.error("❌ Du måste ladda upp ett kvitto eller underlag!")
         elif belopp <= 0:
             st.warning("⚠️ Vänligen ange ett belopp över 0 kr.")
         else:
-            # Skapa det verkliga utläggsobjektet
             nytt_utlagg = {
                 "id": len(admin_data["vantande_utlagg"]) + 1,
                 "namn": anv_namn_reg.strip(),
@@ -129,7 +128,6 @@ with flik_registrera:
             admin_data["vantande_utlagg"].append(nytt_utlagg)
             st.success(f"✅ Utlägget på {belopp} kr för {valt_lag} har skickats till kö!")
 
-            # Skicka mailnotis direkt
             mail_skickat_till = []
             for anv in admin_data.get("anvandare", []):
                 if valt_lag in anv.get("lag", []):
@@ -155,7 +153,6 @@ with flik_attestera:
     if len(vantande) == 0:
         st.info("📥 Inga nya utlägg ligger i kön just nu.")
     else:
-        # Loopa igenom alla ärenden som ligger i kön live
         for index, utl in enumerate(vantande):
             with st.container(border=True):
                 col_info, col_konto = st.columns(2)
@@ -174,10 +171,9 @@ with flik_attestera:
                         key=f"attest_konto_{index}"
                     )
 
-                col_btn1, col_btn2, _ = st.columns([1, 1, 2])
+                col_btn1, col_btn2, _ = st.columns(3)
                 with col_btn1:
                     if st.button("👍 Godkänn", key=f"godkand_{index}", type="primary"):
-                        # Flytta till godkänd historik
                         nytt_godkant = {
                             "Inskickat av": utl["namn"],
                             "Lag": utl["lag"],
@@ -187,19 +183,18 @@ with flik_attestera:
                             "Kvittofil": utl["filnamn"]
                         }
                         admin_data["godkanda_utlagg"].append(nytt_godkant)
-                        admin_data["vantande_utlagg"].pop(index) # Ta bort från kön
+                        admin_data["vantande_utlagg"].pop(index)
                         spara_admin_data(admin_data)
                         st.success("Utlägget godkänt!")
                         st.rerun()
 
                 with col_btn2:
                     if st.button("👎 Neka", key=f"neka_{index}"):
-                        admin_data["vantande_utlagg"].pop(index) # Ta bort utan att spara
+                        admin_data["vantande_utlagg"].pop(index)
                         spara_admin_data(admin_data)
-                        st.warning("Utlägget nekades och raderades ur kön.")
+                        st.warning("Utlägget nekades.")
                         st.rerun()
 
-    # --- HISTORIK & EXPORT MED REDIGERINGSMÖJLIGHET ---
     st.divider()
     st.subheader("📦 Exportera godkända utlägg")
     
@@ -208,11 +203,9 @@ with flik_attestera:
     if godkanda:
         st.write(f"Det finns **{len(godkanda)}** godkända utlägg i historiken.")
         
-        # Visa tabellen
         df = pd.DataFrame(godkanda)
         st.dataframe(df, use_container_width=True)
         
-        # Möjlighet att ta bort en specifik rad om något blivit fel innan export
         st.write("**Rensa i historiken innan export:**")
         rader_att_valja = [f"{i}: {x['Inskickat av']} - {x['Belopp (kr)']} kr ({x['Lag']})" for i, x in enumerate(godkanda)]
         rad_att_radera = st.selectbox("Välj utlägg att städa bort:", options=["---"] + rader_att_valja)
@@ -224,7 +217,6 @@ with flik_attestera:
             st.success("Utlägget raderades från exportlistan!")
             st.rerun()
 
-        # CSV-knapp
         csv_data = df.to_csv(index=False, encoding="utf-8-sig", sep=";")
         st.download_button(
             label="📥 Ladda ner som CSV-fil för bokföring", 
@@ -243,3 +235,12 @@ with flik_admin:
         st.write(f"**Aktuella kategorier:** {', '.join(admin_data['kategorier'])}")
         col1, col2 = st.columns(2)
         with col1:
+            ny_kat = st.text_input("Lägg till ny kategori:", placeholder="t.ex. Kläder", key="admin_ny_kat")
+            if st.button("➕ Lägg till", key="add_kat"):
+                if ny_kat and ny_kat not in admin_data["kategorier"]:
+                    admin_data["kategorier"].append(ny_kat)
+                    spara_admin_data(admin_data)
+                    st.success(f"'{ny_kat}' tillagd!")
+                    st.rerun()
+        with col2:
+            kat_att_ta_bort = st.selectbox("Ta bort en kategori:", options=["---"] + admin_data["kategorier"], key="admin_del_kat_sel")
