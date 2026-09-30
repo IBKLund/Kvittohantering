@@ -1,34 +1,19 @@
 import streamlit as st
 import pandas as pd
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from datetime import datetime
 
-# MÅSTE ligga absolut först i filen
-st.set_page_config(page_title="Föreningens Kvittohantering", layout="wide")
+# MÅSTE ligga absolut först
+st.set_page_config(page_title="Kvittohantering", layout="wide")
 
-# =========================================================================
-# INITIERA SESSIONS-MINNET (MOLNSÄKERT)
-# =========================================================================
+# Trygg initiering av sessionsminnet
 if "lag" not in st.session_state:
     st.session_state["lag"] = ["Dam Elit", "Herr Elit", "Dam div1", "Herr div2"]
-
 if "konton" not in st.session_state:
-    st.session_state["konton"] = [
-        "5800 Biljetter (tåg/buss/flyg/båt)",
-        "5830 Kost",
-        "5831 Logi",
-        "7330 Bilersättning",
-        "2999 Övrigt"
-    ]
-
+    st.session_state["konton"] = ["5800 Biljetter", "5830 Kost", "5831 Logi", "7330 Bilersättning"]
 if "attestanter" not in st.session_state:
     st.session_state["attestanter"] = []
-
 if "vantande_utlagg" not in st.session_state:
     st.session_state["vantande_utlagg"] = []
-
 if "godkanda_utlagg" not in st.session_state:
     st.session_state["godkanda_utlagg"] = []
 
@@ -39,6 +24,9 @@ MAIL_SMTP_SERVER = "://gmail.com"
 MAIL_PORT = 587
 
 def skicka_notis_mail(till_epost, attestant_namn, lag_namn, belopp, kategori, inskickat_av):
+    import smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
     msg = MIMEMultipart()
     msg["From"] = MAIL_AVSANDARE
     msg["To"] = till_epost
@@ -55,7 +43,7 @@ def skicka_notis_mail(till_epost, attestant_namn, lag_namn, belopp, kategori, in
     except:
         return False
 
-# Skapa appens flikar
+# Skapa flikarna
 flik_registrera, flik_attestera, flik_admin = st.tabs([
     "📝 Registrera Utlägg", 
     "✅ Attestfunktion", 
@@ -63,157 +51,171 @@ flik_registrera, flik_attestera, flik_admin = st.tabs([
 ])
 
 # =========================================================================
-# FLIK 1: REGISTRERA UTLÄGG
+# FLIK 1: REGISTRERA
 # =========================================================================
 with flik_registrera:
     st.title("📝 Registrera nytt utlägg")
-    st.info(
-        "ℹ️ **Utbetalningsinformation:**\n"
-        "* Utbetalning sker runt den **25:e varje månad**.\n"
-        "* Kvitton som inkommer **efter den 10:e** utbetalas nästa månad."
-    )
-
-    if "uploader_id" not in st.session_state:
-        st.session_state.uploader_id = 100
-
-    with st.form("huvud_reg_form", clear_on_submit=True):
-        namn_reg = st.text_input("Ditt Namn (Obligatoriskt):", placeholder="t.ex. Johan Larsson")
-        lag_reg = st.selectbox("Välj lag/avdelning:", options=st.session_state["lag"])
-        konto_reg = st.selectbox("Välj kategori/konto för kvittot:", options=st.session_state["konton"])
-        belopp_reg = st.number_input("Belopp (kr):", min_value=0.0, step=1.0, value=0.0)
-        
-        st.subheader("Bankuppgifter för utbetalning")
-        bank_reg = st.text_input("Bankens namn:", placeholder="t.ex. Swedbank")
-        clearing_reg = st.text_input("Clearingnummer:")
-        konto_nr_reg = st.text_input("Kontonummer:")
-
-        fil_reg = st.file_uploader(
-            "Ladda upp kvitto eller underlag (PDF, PNG, JPG) *", 
-            type=["pdf", "png", "jpg", "jpeg"],
-            key=f"file_up_{st.session_state.uploader_id}"
-        )
-        
-        skicka_reg_btn = st.form_submit_button("Skicka in utlägg", type="primary")
-
-        if skicka_reg_btn:
-            if not namn_reg.strip():
-                st.error("❌ Du måste fylla i ditt namn!")
-            elif belopp_reg <= 0:
-                st.warning("⚠️ Beloppet måste vara högre än 0 kr.")
-            elif not (bank_reg and clearing_reg and konto_nr_reg):
-                st.error("❌ Du måste fylla i kompletta bankuppgifter för utbetalning!")
-            elif not fil_reg:
-                st.error("❌ Du måste bifoga en kvittofil!")
-            else:
-                nytt_utlagg = {
-                    "id": len(st.session_state["vantande_utlagg"]) + len(st.session_state["godkanda_utlagg"]) + 1,
-                    "namn": namn_reg.strip(),
-                    "lag": lag_reg,
-                    "kategori": konto_reg,
-                    "belopp": belopp_reg,
-                    "bank": bank_reg.strip(),
-                    "clearing": clearing_reg.strip(),
-                    "kontonummer": konto_nr_reg.strip(),
-                    "filnamn": fil_reg.name,
-                    "datum_inskickat": datetime.now().strftime("%Y-%m-%d")
-                }
-                
-                st.session_state["vantande_utlagg"].append(nytt_utlagg)
-                
-                mailade = []
-                for att in st.session_state["attestanter"]:
-                    if lag_reg in att.get("lag", []):
-                        if skicka_notis_mail(att["epost"], att["namn"], lag_reg, belopp_reg, konto_reg, namn_reg.strip()):
-                            mailade.append(att["namn"])
-                
-                st.success(f"✅ Utlägget på {belopp_reg} kr har registrerats!")
-                if mailade:
-                    st.info(f"📧 Mailnotis har skickats till lagets attestant(er): {', '.join(mailade)}")
-                
-                st.session_state.uploader_id += 1
-                st.rerun()
+    st.info("ℹ️ Utbetalning sker runt den 25:e varje månad. Kvitton efter den 10:e utbetalas nästa månad.")
+    
+    namn_reg = st.text_input("Ditt Namn:")
+    lag_reg = st.selectbox("Välj lag:", options=st.session_state["lag"])
+    konto_reg = st.selectbox("Välj konto:", options=st.session_state["konton"])
+    belopp_reg = st.number_input("Belopp (kr):", min_value=0.0, step=1.0)
+    
+    st.subheader("Bankuppgifter")
+    bank_reg = st.text_input("Bank:")
+    clearing_reg = st.text_input("Clearingnummer:")
+    konto_nr_reg = st.text_input("Kontonummer:")
+    
+    fil_reg = st.file_uploader("Ladda upp kvitto", type=["pdf", "png", "jpg", "jpeg"])
+    
+    if st.button("Skicka in utlägg", type="primary"):
+        if namn_reg and bank_reg and clearing_reg and konto_nr_reg:
+            nytt_utlagg = {
+                "id": len(st.session_state["vantande_utlagg"]) + len(st.session_state["godkanda_utlagg"]) + 1,
+                "namn": namn_reg,
+                "lag": lag_reg,
+                "kategori": konto_reg,
+                "belopp": belopp_reg,
+                "bank": bank_reg,
+                "clearing": clearing_reg,
+                "kontonummer": konto_nr_reg,
+                "filnamn": fil_reg.name if fil_reg else "Inget underlag",
+                "datum_inskickat": datetime.now().strftime("%Y-%m-%d")
+            }
+            st.session_state["vantande_utlagg"].append(nytt_utlagg)
+            
+            # Skicka mailnotis till rätt lag-attestanter
+            mailade = []
+            for att in st.session_state["attestanter"]:
+                if lag_reg in att.get("lag", []):
+                    if skicka_notis_mail(att["epost"], att["namn"], lag_reg, belopp_reg, konto_reg, namn_reg):
+                        mailade.append(att["namn"])
+                        
+            st.success("✅ Utlägget har registrerats!")
+            if mailade:
+                st.info(f"📧 Mailnotis har skickats till: {', '.join(mailade)}")
+        else:
+            st.error("Fyll i alla fält.")
 
 # =========================================================================
-# FLIK 2: ATTESTFUNKTION
+# FLIK 2: ATTEST
 # =========================================================================
 with flik_attestera:
     st.title("✅ Attestfunktion")
     
-    st.subheader("Vem är du?")
     attestant_namn_lista = [a["namn"] for a in st.session_state["attestanter"]]
-    
     if not attestant_namn_lista:
-        st.warning("⚠️ Inga attestanter är upplagda ännu. Gå till Adminpanelen för att lägga till dig som attestant.")
+        st.warning("Inga attestanter finns. Lägg till en i Adminpanelen först.")
     else:
-        aktiv_attestant_namn = st.selectbox("Välj ditt namn för att se dina ärenden:", options=attestant_namn_lista)
-        aktiv_attestant = next(a for a in st.session_state["attestanter"] if a["namn"] == aktiv_attestant_namn)
-        mina_lag = aktiv_attestant.get("lag", [])
+        aktiv_attestant = st.selectbox("Välj ditt namn:", options=attestant_namn_lista)
+        match = next(a for a in st.session_state["attestanter"] if a["namn"] == aktiv_attestant)
+        mina_lag = match["lag"]
         
-        st.write(f"Du har behörighet för följande lag: **{', '.join(mina_lag)}**")
-        st.divider()
-
-        aktuell_ko = [u for u in st.session_state["vantande_utlagg"] if u["lag"] in mina_lag]
+        st.write(f"Dina lag: {', '.join(mina_lag)}")
         
-        st.subheader("Ärenden som väntar på ditt godkännande")
-        if not aktuell_ko:
-            st.info("📥 Inga väntande utlägg för dina lag just nu.")
-        else:
-            for idx, utl in enumerate(aktuell_ko):
-                st.markdown(f"### Ärende från {utl['namn']} ({utl['lag']})")
-                st.write(f"**Bank:** {utl['bank']} | **Clearing:** {utl['clearing']} | **Konto:** {utl['kontonummer']} | **Fil:** {utl['filnamn']}")
-                
-                nytt_konto = st.selectbox(
-                    f"Konto för ärende #{utl['id']}:", 
-                    options=st.session_state["konton"], 
-                    index=st.session_state["konton"].index(utl["kategori"]) if utl["kategori"] in st.session_state["konton"] else 0,
-                    key=f"konto_{utl['id']}"
-                )
-                nytt_belopp = st.number_input(
-                    f"Belopp (kr) för ärende #{utl['id']}:", 
-                    value=float(utl["belopp"]), 
-                    key=f"belopp_{utl['id']}"
-                )
-                
-                col_b1, col_b2 = st.columns(2)
-                with col_b1:
-                    if st.button("✅ Godkänn & Attestera", key=f"godkand_{utl['id']}", type="primary"):
+        # Visa väntande
+        for utl in list(st.session_state["vantande_utlagg"]):
+            if utl["lag"] in mina_lag:
+                with st.container(border=True):
+                    st.write(f"**Inskickat av:** {utl['namn']} | **Lag:** {utl['lag']}")
+                    st.write(f"**Bank:** {utl['bank']} | **Clearing:** {utl['clearing']} | **Konto:** {utl['kontonummer']}")
+                    
+                    nytt_konto = st.selectbox(
+                        f"Korrigera konto för #{utl['id']}:", 
+                        options=st.session_state["konton"], 
+                        index=st.session_state["konton"].index(utl["kategori"]) if utl["kategori"] in st.session_state["konton"] else 0,
+                        key=f"k_{utl['id']}"
+                    )
+                    nytt_belopp = st.number_input(
+                        f"Korrigera belopp för #{utl['id']}:", 
+                        value=float(utl["belopp"]), 
+                        key=f"b_{utl['id']}"
+                    )
+                    
+                    if st.button(f"Godkänn #{utl['id']}", type="primary", key=f"g_{utl['id']}"):
                         utl["kategori"] = nytt_konto
                         utl["belopp"] = nytt_belopp
-                        utl["attesterat_av"] = aktiv_attestant_namn
+                        utl["attesterat_av"] = aktiv_attestant
                         utl["datum_attesterat"] = datetime.now().strftime("%Y-%m-%d")
-                        
                         st.session_state["godkanda_utlagg"].append(utl)
-                        st.session_state["vantande_utlagg"] = [u for u in st.session_state["vantande_utlagg"] if u["id"] != utl["id"]]
-                        st.success("Utlägg attesterat!")
+                        st.session_state["vantande_utlagg"].remove(utl)
+                        st.success("Godkänt!")
                         st.rerun()
-            
-                with col_b2:
-                    if st.button("🗑️ Radera utlägg", key=f"radera_{utl['id']}"):
-                        st.session_state["vantande_utlagg"] = [u for u in st.session_state["vantande_utlagg"] if u["id"] != utl["id"]]
-                        st.warning("Utlägg borttaget och raderat ur kön.")
+                    if st.button(f"Radera #{utl['id']}", key=f"r_{utl['id']}"):
+                        st.session_state["vantande_utlagg"].remove(utl)
+                        st.warning("Raderat!")
                         st.rerun()
-                st.divider()
 
-        # Export till Spiris
+        # Spiris Export
         st.subheader("Export till Spiris")
         mina_godkanda = [u for u in st.session_state["godkanda_utlagg"] if u["lag"] in mina_lag]
-        
         if mina_godkanda:
             df_spiris = pd.DataFrame(mina_godkanda)
-            kolumner_att_visa = ["namn", "lag", "kategori", "belopp", "bank", "clearing", "kontonummer", "datum_attesterat"]
-            st.dataframe(df_spiris[kolumner_att_visa])
-            
-            csv = df_spiris[kolumner_att_visa].to_csv(index=False, encoding="utf-8-sig")
-            st.download_button(
-                label="📥 Ladda ner fil för Spiris (CSV)",
-                data=csv,
-                file_name=f"spiris_export_{aktiv_attestant_namn}_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv"
-            )
+            kolumner = ["namn", "lag", "kategori", "belopp", "bank", "clearing", "kontonummer", "datum_attesterat"]
+            st.dataframe(df_spiris[kolumner])
+            csv = df_spiris[kolumner].to_csv(index=False, encoding="utf-8-sig")
+            st.download_button("📥 Ladda ner fil för Spiris (CSV)", data=csv, file_name=f"spiris_{aktiv_attestant}.csv", mime="text/csv")
         else:
-            st.info("Det finns inga godkända kvitton att exportera till Spiris för dina lag än.")
+            st.info("Inga godkända utlägg att exportera än.")
 
-        # Historik per attestant
+        # Historik per person
         st.divider()
-        st.subheader(f"Din historik ({aktiv_attestant_namn})")
-        historik_lista = [u for u in st.session_state["godkanda_utlagg"] if u.get("attesterat_av") == aktiv_attestant_namn]
+        st.subheader("Din historik")
+        historik = [u for u in st.session_state["godkanda_utlagg"] if u.get("attesterat_av") == aktiv_attestant]
+        if historik:
+            st.dataframe(pd.DataFrame(historik)[["datum_attesterat", "namn", "lag", "kategori", "belopp"]])
+        else:
+            st.caption("Ingen historik än.")
+
+# =========================================================================
+# FLIK 3: ADMINPANEL
+# =========================================================================
+with flik_admin:
+    st.title("⚙️ Adminpanel")
+    
+    # Hantera lag
+    st.subheader("Befintliga lag i systemet:")
+    st.write(", ".join(st.session_state["lag"]))
+    
+    nytt_lag = st.text_input("Lägg till lagnamn:")
+    if st.button("Spara nytt lag"):
+        if nytt_lag and nytt_lag not in st.session_state["lag"]:
+            st.session_state["lag"].append(nytt_lag)
+            st.success("Lag tillagt!")
+            st.rerun()
+    
+    st.divider()
+    
+    # Hantera konton
+    st.subheader("Befintliga konton i systemet:")
+    st.write(", ".join(st.session_state["konton"]))
+    
+    nytt_konto = st.text_input("Lägg till kontonamn:")
+    if st.button("Spara nytt konto"):
+        if nytt_konto and nytt_konto not in st.session_state["konton"]:
+            st.session_state["konton"].append(nytt_konto)
+            st.success("Konto tillagt!")
+            st.rerun()
+            
+    st.divider()
+    
+    # Hantera attestanter
+    st.subheader("Skapa ny attestant:")
+    a_namn = st.text_input("Namn på attestant:")
+    a_epost = st.text_input("E-post till attestant:")
+    a_lag = st.multiselect("Välj lag för denna person:", options=st.session_state["lag"])
+    
+    if st.button("Spara attestant"):
+        if a_namn and a_epost and a_lag:
+            st.session_state["attestanter"].append({"namn": a_namn, "epost": a_epost, "lag": a_lag})
+            st.success("Attestant sparad!")
+            st.rerun()
+            
+    if st.session_state["attestanter"]:
+        st.subheader("Registrerade attestanter:")
+        for i, att in enumerate(st.session_state["attestanter"]):
+            st.write(f"👤 {att['namn']} ({att['epost']}) - Ansvarar för: {', '.join(att['lag'])}")
+            if st.button(f"Ta bort {att['namn']}", key=f"del_{i}"):
+                st.session_state["attestanter"].remove(att)
+                st.rerun()
