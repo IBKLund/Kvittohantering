@@ -24,7 +24,7 @@ if "godkanda_utlagg" not in st.session_state:
 
 # E-postinställningar
 MAIL_AVSANDARE = "kvitto@ibklund.se"
-MAIL_LOSENORD = "lquelydfygnvizqv"
+MAIL_LOSENORD = "uzierddeiefbongh"
 MAIL_SMTP_SERVER = "://gmail.com"
 MAIL_PORT = 587
 
