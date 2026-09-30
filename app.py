@@ -216,4 +216,5 @@ elif sida == "✅ Attestfunktion":
             st.divider()
             st.subheader("Export till Spiris")
             mina_godkanda = [u for u in st.session_state["godkanda_utlagg"] if u["lag"] in mina_lag]
-            if mina_godkanda:
+            
+            df_spiris = pd.DataFrame(mina_godkanda)
