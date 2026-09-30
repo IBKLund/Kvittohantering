@@ -202,16 +202,15 @@ elif sida == "✅ Attestfunktion":
                                 key=f"b_{utl['id']}"
                             )
                             
-                            col_b1, col_b2 = st.columns(2)
-                            with col_b1:
-                                if st.button(f"✅ Godkänn & Attestera #{utl['id']}", type="primary", key=f"g_{utl['id']}"):
-                                    utl["kategori"] = nytt_konto
-                                    utl["belopp"] = nytt_belopp
-                                    utl["attesterat_av"] = aktiv_attestant
-                                    utl["datum_attesterat"] = datetime.now().strftime("%Y-%m-%d")
-                                    st.session_state["godkanda_utlagg"].append(utl)
-                                    st.session_state["vantande_utlagg"].remove(utl)
-                                    spara_data()
-                                    st.success("Godkänt!")
-                                    st.rerun()
-                            with col_b2:
+                            # Knappar placerade under varandra för att helt eliminera indenteringsfel
+                            if st.button(f"✅ Godkänn & Attestera #{utl['id']}", type="primary", key=f"g_{utl['id']}"):
+                                utl["kategori"] = nytt_konto
+                                utl["belopp"] = nytt_belopp
+                                utl["attesterat_av"] = aktiv_attestant
+                                utl["datum_attesterat"] = datetime.now().strftime("%Y-%m-%d")
+                                st.session_state["godkanda_utlagg"].append(utl)
+                                st.session_state["vantande_utlagg"].remove(utl)
+                                spara_data()
+                                st.success("Godkänt!")
+                                st.rerun()
+                                
