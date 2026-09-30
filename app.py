@@ -10,7 +10,7 @@ st.set_page_config(page_title="IBK Lund - Kvittohantering", layout="wide")
 # =========================================================================
 # LÖSENORD OCH INSTÄLLNINGAR
 # =========================================================================
-ADMIN_LOSENORD = "admin123"  # <-- Ditt adminlösenord
+ADMIN_LOSENORD = "IBKLund2022!"  # <-- Ditt adminlösenord
 DATA_FILE = "admin_data.json"
 
 MAIL_AVSANDARE = "kvitto@ibklund.se"
