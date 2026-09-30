@@ -5,7 +5,7 @@ from datetime import datetime
 
 st.set_page_config(page_title="IBK Lund", layout="wide")
 DATA_FILE = "admin_data.json"
-resend.api_key = "HÄR_KLISTRAR_DU_IN_DIN_API_KEY_FRÅN_RESEND"
+resend.api_key = "re_caMv7Xzp_5Uc7NBPMMTsK5tTC95Q2dPwe"
 MAIL_AVSANDARE = "onboarding@resend.dev"
 
 DEFAULT_LAG = ["Dam Elit", "Herr Elit", "Dam div1", "Herr div2", "LundaLägret", "NovaOpen"]
