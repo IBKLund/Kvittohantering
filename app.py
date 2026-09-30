@@ -14,7 +14,7 @@ DATA_FILE = "admin_data.json"
 
 MAIL_AVSANDARE = "kvitto@ibklund.se"  # <-- Din Workspace-mail
 MAIL_LOSENORD = "lquelydfygnvizqv"     # <-- Ditt 16-siffriga Applösenord
-MAIL_SMTP_SERVER = "smtp.gmail.com"     # <-- FIXAD: Korrekt Gmail SMTP
+MAIL_SMTP_SERVER = "://gmail.com"     # <-- Korrekt Gmail SMTP
 MAIL_PORT = 587
 
 # Initiala standardvärden om filen inte finns
@@ -110,7 +110,7 @@ with flik_registrera:
         st.subheader("Bankuppgifter för utbetalning")
         col_b1, col_b2, col_b3 = st.columns(3)
         with col_b1:
-            bank_reg = st.text_input("Bankens namn:", placeholder="e.g. Swedbank")
+            bank_reg = st.text_input("Bankens namn:", placeholder="t.ex. Swedbank")
         with col_b2:
             clearing_reg = st.text_input("Clearingnummer:")
         with col_b3:
@@ -209,7 +209,7 @@ with flik_attestera:
                             index=nu_data["konton"].index(utl["kategori"]) if utl["kategori"] in nu_data["konton"] else 0,
                             key=f"konto_{utl['id']}"
                         )
-                        nytt_belopp = st.number_value = st.number_input(
+                        nytt_belopp = st.number_input(
                             f"Belopp (kr) (Korrigera om felaktigt):", 
                             value=float(utl["belopp"]), 
                             key=f"belopp_{utl['id']}"
@@ -225,3 +225,4 @@ with flik_attestera:
                                 utl["datum_attesterat"] = datetime.now().strftime("%Y-%m-%d")
                                 
                                 nu_data["godkanda_utlagg"].append(utl)
+                                nu_data["vantande_utlagg"] = [u for u in nu_data["vantande_utlagg"] if u["id"] != utl["id"]]
