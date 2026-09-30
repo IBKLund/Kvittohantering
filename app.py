@@ -167,8 +167,7 @@ elif sida == "⚙️ Adminpanel":
     if st.button("Spara attestant", key="as_att"):
         if an and ae and al: st.session_state["attestanter"].append({"namn": an.strip(), "epost": ae.strip(), "lag": al})
     spara_data(); st.success("Attestant sparad!"); st.rerun()
-    if st.session_state["attestanter"]:
-    st.write("### Registrerade attestanter just nu:")
+    if st.session_state["attestanter"]: st.write("### Registrerade attestanter just nu:")
     for i, att in enumerate(st.session_state["attestanter"]):
     st.write(f"👤 {att['namn']} ({att['epost']}) - Ansvarar för: {', '.join(att['lag'])}")
     if st.button(f"Ta bort {att['namn']}", key=f"ad_del_{i}"):
