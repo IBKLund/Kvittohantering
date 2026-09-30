@@ -5,7 +5,13 @@ from datetime import datetime
 
 st.set_page_config(page_title="IBK Lund", layout="wide")
 DATA_FILE = "admin_data.json"
-resend.api_key = "re_caMv7Xzp_5Uc7NBPMMTsK5tTC95Q2dPwe"
+
+# SÄKER LÖSNING: Hämtar nyckeln dolt från Streamlits inställningar istället för att hårdkoda den
+if "RESEND_API_KEY" in st.secrets:
+    resend.api_key = st.secrets["RESEND_API_KEY"]
+else:
+    st.error("⚠️ RESEND_API_KEY saknas i Streamlit Secrets!")
+
 MAIL_AVSANDARE = "onboarding@resend.dev"
 
 DEFAULT_LAG = ["Dam Elit", "Herr Elit", "Dam div1", "Herr div2", "LundaLägret", "NovaOpen"]
@@ -136,7 +142,7 @@ elif sida == "⚙️ Adminpanel":
     if st.session_state["attestanter"]:
         st.write("### Registrerade attestanter:")
         for i, att in enumerate(st.session_state["attestanter"]):
-            c_txt, c_ed, c_del = st.columns([4, 1, 1])
+            c_txt, c_ed, c_del = st.columns()
             c_txt.write(f"👤 **{att['namn']}** ({att['epost']}) - {', '.join(att['lag'])}")
             if c_ed.button("✏️", key=f"ed_{i}"):
                 st.session_state["an_namn"], st.session_state["an_mail"], st.session_state["an_lag"] = att["namn"], att["epost"], att["lag"]
