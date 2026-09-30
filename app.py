@@ -55,7 +55,10 @@ def skicka_notis_mail(till, namn, lag, belopp, kat, av):
         s.sendmail(MAIL_AVSANDARE, till, msg.as_string())
         s.quit()
         return True
-    except: return False
+    except Exception as e:
+        # Tvingar appen att visa det exakta felet på skärmen för administratören/användaren
+        st.error(f"📧 E-postfel för {namn} ({till}): {e}")
+        return False
 
 st.sidebar.title("IBK Lund")
 sida = st.sidebar.radio("Välj funktion:", ["📝 Registrera Utlägg", "✅ Attestfunktion", "⚙️ Adminpanel"])
