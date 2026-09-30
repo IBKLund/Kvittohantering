@@ -29,7 +29,7 @@ DEFAULT_KONTON = [
     "2999 Övrigt"
 ]
 
-# Standardattestanter som ligger som grund om databasen är tom
+# Standardattestanter som ska finnas med som bas
 DEFAULT_ATTESTANTER = [
     {"namn": "Christer Sölve", "epost": "christer@solve.se", "lag": ["Herr Elit"]},
     {"namn": "Magnus Berglund", "epost": "magnus.berglund@ibklund.se", "lag": ["LundaLägret", "NovaOpen"]}
@@ -56,7 +56,8 @@ def ladda_data():
             if k not in data or not isinstance(data[k], type(v)):
                 data[k] = v
         
-        if not data["attestanter"]:
+        # REPARATION: Om listan blivit tom, tvinga in standardpersonerna
+        if not data["attestanter"] or len(data["attestanter"]) == 0:
             data["attestanter"] = DEFAULT_ATTESTANTER.copy()
             
         return data
@@ -78,10 +79,11 @@ def spara_data():
         pass
 
 # Läs in data till session_state en gång per körning om det saknas
-if "lag" not in st.session_state:
+if "lag" not in st.session_state or not st.session_state["attestanter"]:
     sparad_data = ladda_data()
     for nyckel, varde in sparad_data.items():
         st.session_state[nyckel] = varde
+    spara_data() # Spara direkt så filen på disk lagas
 
 def skicka_notis_mail(till_epost, attestant_namn, lag_namn, belopp, kategori, inskickat_av):
     import smtplib
@@ -213,5 +215,3 @@ elif sida == "✅ Attestfunktion":
                                     st.success("Godkänt!")
                                     st.rerun()
                             with col_b2:
-                                if st.button(f"🗑️ Radera utlägg #{utl['id']}", key=f"r_{utl['id']}"):
-                                    st.session_state["vantande_utlagg"].remove(utl)
