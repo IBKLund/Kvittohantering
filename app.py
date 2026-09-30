@@ -10,7 +10,7 @@ st.set_page_config(page_title="IBK Lund - Kvittohantering", layout="wide")
 # =========================================================================
 # LÖSENORD OCH INSTÄLLNINGAR
 # =========================================================================
-ADMIN_LOSENORD = "admin123"  # <-- Ditt önskade adminlösenord
+ADMIN_LOSENORD = "IBKLund2022!"  # <-- Ditt adminlösenord
 DATA_FILE = "admin_data.json"
 
 MAIL_AVSANDARE = "kvitto@ibklund.se"
@@ -110,14 +110,21 @@ st.sidebar.title("IBK Lund")
 st.sidebar.subheader("Kvitto & Utlägg")
 sida = st.sidebar.radio("Välj funktion:", ["📝 Registrera Utlägg", "✅ Attestfunktion", "⚙️ Adminpanel"])
 
-# Om användaren klickar på Adminpanelen, visa inloggningsfält i sidebar
+# Om användaren klickar på Adminpanelen, visa ett inloggningsformulär med knapp i sidebar
 if sida == "⚙️ Adminpanel":
     st.sidebar.markdown("---")
-    pwd_input = st.sidebar.text_input("Admin lösenord:", type="password")
-    if pwd_input == ADMIN_LOSENORD:
-        st.session_state["admin_inloggad"] = True
+    if not st.session_state["admin_inloggad"]:
+        pwd_input = st.sidebar.text_input("Admin lösenord:", type="password")
+        if st.sidebar.button("🔓 Logga in som Admin"):
+            if pwd_input == ADMIN_LOSENORD:
+                st.session_state["admin_inloggad"] = True
+                st.rerun()
+            else:
+                st.sidebar.error("Felaktigt lösenord!")
     else:
-        st.session_state["admin_inloggad"] = False
+        if st.sidebar.button("🔒 Logga ut"):
+            st.session_state["admin_inloggad"] = False
+            st.rerun()
 
 # =========================================================================
 # MENY 1: REGISTRERA UTLÄGG
@@ -215,8 +222,3 @@ elif sida == "✅ Attestfunktion":
                                 utl["attesterat_av"] = aktiv_attestant
                                 utl["datum_attesterat"] = datetime.now().strftime("%Y-%m-%d")
                                 st.session_state["godkanda_utlagg"].append(utl)
-                                st.session_state["vantande_utlagg"].remove(utl)
-                                spara_data()
-                                st.success("Godkänt!")
-                                st.rerun()
-                                
