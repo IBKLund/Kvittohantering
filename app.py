@@ -1,5 +1,3 @@
-import json
-import os
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -11,10 +9,8 @@ from datetime import datetime
 st.set_page_config(page_title="Föreningens Kvittohantering", layout="wide")
 
 # =========================================================================
-# 1. GLOBAL KONFIGURATION & DATABAS
+# 1. GLOBAL KONFIGURATION & SESSION STATE (MOLNANPASSAD)
 # =========================================================================
-DATA_FILE = "admin_data.json"
-
 MAIL_AVSANDARE = "kvitto@ibklund.se"
 MAIL_LOSENORD = "lquelydfygnvizqv"
 MAIL_SMTP_SERVER = "://gmail.com"
@@ -29,37 +25,17 @@ DEFAULT_KONTON = [
     "2999 Övrigt"
 ]
 
-def ladda_system_data():
-    default_data = {
-        "lag": DEFAULT_LAG,
-        "konton": DEFAULT_KONTON,
-        "attestanter": [],
-        "vantande_utlagg": [],
-        "godkanda_utlagg": []
-    }
-    
-    if not os.path.exists(DATA_FILE):
-        return default_data
-
-    try:
-        with open(DATA_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        
-        # Säkerställ att alla fält existerar och har rätt datatyp
-        for nyckel, standard_varde in default_data.items():
-            if nyckel not in data or not isinstance(data[nyckel], type(standard_varde)):
-                data[nyckel] = standard_varde
-        return data
-    except Exception as e:
-        # Om filen är korrupt, krascha inte appen, kör på standardvärden
-        return default_data
-
-def spara_system_data(data):
-    try:
-        with open(DATA_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=4)
-    except Exception as e:
-        st.error(f"Kunde inte spara data till disk: {e}")
+# Initiera sessionsminnet om det inte redan finns (ersätter JSON-filen för molnet)
+if "lag" not in st.session_state:
+    st.session_state["lag"] = DEFAULT_LAG.copy()
+if "konton" not in st.session_state:
+    st.session_state["konton"] = DEFAULT_KONTON.copy()
+if "attestanter" not in st.session_state:
+    st.session_state["attestanter"] = []
+if "vantande_utlagg" not in st.session_state:
+    st.session_state["vantande_utlagg"] = []
+if "godkanda_utlagg" not in st.session_state:
+    st.session_state["godkanda_utlagg"] = []
 
 def skicka_notis_mail(till_epost, attestant_namn, lag_namn, belopp, kategori, inskickat_av):
     msg = MIMEMultipart()
@@ -78,8 +54,9 @@ def skicka_notis_mail(till_epost, attestant_namn, lag_namn, belopp, kategori, in
     except:
         return False
 
-# Läs in data
-nu_data = ladda_system_data()
+# Genvägar för att hålla resten av koden ren
+nu_lag = st.session_state["lag"]
+nu_konton = st.session_state["konton"]
 
 # Struktur för flikar
 flik_registrera, flik_attestera, flik_admin = st.tabs([
@@ -104,8 +81,8 @@ with flik_registrera:
 
     with st.form("huvud_reg_form", clear_on_submit=True):
         namn_reg = st.text_input("Ditt Namn (Obligatoriskt):", placeholder="t.ex. Johan Larsson")
-        lag_reg = st.selectbox("Välj lag/avdelning:", options=nu_data["lag"])
-        konto_reg = st.selectbox("Välj kategori/konto för kvittot:", options=nu_data["konton"])
+        lag_reg = st.selectbox("Välj lag/avdelning:", options=nu_lag)
+        konto_reg = st.selectbox("Välj kategori/konto för kvittot:", options=nu_konton)
         belopp_reg = st.number_input("Belopp (kr):", min_value=0.0, step=1.0, value=0.0)
         
         st.subheader("Bankuppgifter för utbetalning")
@@ -136,7 +113,7 @@ with flik_registrera:
                 st.error("❌ Du måste bifoga en kvittofil!")
             else:
                 nytt_utlagg = {
-                    "id": len(nu_data["vantande_utlagg"]) + len(nu_data["godkanda_utlagg"]) + 1,
+                    "id": len(st.session_state["vantande_utlagg"]) + len(st.session_state["godkanda_utlagg"]) + 1,
                     "namn": namn_reg.strip(),
                     "lag": lag_reg,
                     "kategori": konto_reg,
@@ -148,11 +125,10 @@ with flik_registrera:
                     "datum_inskickat": datetime.now().strftime("%Y-%m-%d")
                 }
                 
-                nu_data["vantande_utlagg"].append(nytt_utlagg)
-                spara_system_data(nu_data)
+                st.session_state["vantande_utlagg"].append(nytt_utlagg)
                 
                 mailade = []
-                for att in nu_data["attestanter"]:
+                for att in st.session_state["attestanter"]:
                     if lag_reg in att.get("lag", []):
                         if skicka_notis_mail(att["epost"], att["namn"], lag_reg, belopp_reg, konto_reg, namn_reg.strip()):
                             mailade.append(att["namn"])
@@ -171,19 +147,19 @@ with flik_attestera:
     st.title("✅ Attestfunktion")
     
     st.subheader("Vem är du?")
-    attestant_namn_lista = [a["namn"] for a in nu_data["attestanter"]]
+    attestant_namn_lista = [a["namn"] for a in st.session_state["attestanter"]]
     
     if not attestant_namn_lista:
         st.warning("⚠️ Inga attestanter är upplagda ännu. Lägg till en under Adminpanelen.")
     else:
         aktiv_attestant_namn = st.selectbox("Välj ditt namn för att se dina ärenden:", options=attestant_namn_lista)
-        aktiv_attestant = next(a for a in nu_data["attestanter"] if a["namn"] == aktiv_attestant_namn)
+        aktiv_attestant = next(a for a in st.session_state["attestanter"] if a["namn"] == aktiv_attestant_namn)
         mina_lag = aktiv_attestant.get("lag", [])
         
         st.write(f"Du har behörighet för följande lag: **{', '.join(mina_lag)}**")
         st.divider()
 
-        aktuell_ko = [u for u in nu_data["vantande_utlagg"] if u["lag"] in mina_lag]
+        aktuell_ko = [u for u in st.session_state["vantande_utlagg"] if u["lag"] in mina_lag]
         
         st.subheader("Ärenden som väntar på ditt godkännande")
         if not aktuell_ko:
@@ -202,8 +178,8 @@ with flik_attestera:
                     with col_r:
                         nytt_konto = st.selectbox(
                             f"Konto (Korrigera om felaktigt):", 
-                            options=nu_data["konton"], 
-                            index=nu_data["konton"].index(utl["kategori"]) if utl["kategori"] in nu_data["konton"] else 0,
+                            options=nu_konton, 
+                            index=nu_konton.index(utl["kategori"]) if utl["kategori"] in nu_konton else 0,
                             key=f"konto_{utl['id']}"
                         )
                         nytt_belopp = st.number_input(
@@ -220,11 +196,21 @@ with flik_attestera:
                                 utl["attesterat_av"] = aktiv_attestant_namn
                                 utl["datum_attesterat"] = datetime.now().strftime("%Y-%m-%d")
                                 
-                                nu_data["godkanda_utlagg"].append(utl)
-                                nu_data["vantande_utlagg"] = [u for u in nu_data["vantande_utlagg"] if u["id"] != utl["id"]]
-                                spara_system_data(nu_data)
+                                st.session_state["godkanda_utlagg"].append(utl)
+                                st.session_state["vantande_utlagg"] = [u for u in st.session_state["vantande_utlagg"] if u["id"] != utl["id"]]
                                 st.success("Utlägg attesterat!")
                                 st.rerun()
                         
                         with col_b2:
                             if st.button("🗑️ Radera utlägg", key=f"radera_{utl['id']}"):
+                                st.session_state["vantande_utlagg"] = [u for u in st.session_state["vantande_utlagg"] if u["id"] != utl["id"]]
+                                st.warning("Utlägg raderat!")
+                                st.rerun()
+
+        st.divider()
+        st.subheader("Export till Spiris")
+        mina_godkanda = [u for u in st.session_state["godkanda_utlagg"] if u["lag"] in mina_lag]
+        
+        if mina_godkanda:
+            df_spiris = pd.DataFrame(mina_godkanda)
+            kolumner_att_visa = ["namn", "lag", "kategori", "belopp", "bank", "clearing", "kontonummer", "datum_attesterat"]
