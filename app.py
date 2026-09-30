@@ -83,7 +83,7 @@ if "lag" not in st.session_state or not st.session_state["attestanter"]:
     sparad_data = ladda_data()
     for nyckel, varde in sparad_data.items():
         st.session_state[nyckel] = varde
-    spara_data() # Spara direkt så filen på disk lagas
+    spara_data()
 
 def skicka_notis_mail(till_epost, attestant_namn, lag_namn, belopp, kategori, inskickat_av):
     import smtplib
@@ -202,7 +202,6 @@ elif sida == "✅ Attestfunktion":
                                 key=f"b_{utl['id']}"
                             )
                             
-                            # Knappar placerade under varandra för att helt eliminera indenteringsfel
                             if st.button(f"✅ Godkänn & Attestera #{utl['id']}", type="primary", key=f"g_{utl['id']}"):
                                 utl["kategori"] = nytt_konto
                                 utl["belopp"] = nytt_belopp
@@ -214,3 +213,6 @@ elif sida == "✅ Attestfunktion":
                                 st.success("Godkänt!")
                                 st.rerun()
                                 
+                            if st.button(f"🗑️ Radera utlägg #{utl['id']}", key=f"r_{utl['id']}"):
+                                st.session_state["vantande_utlagg"].remove(utl)
+                                spara_data()
