@@ -1,41 +1,42 @@
+import streamlit as st
+import pandas as pd
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-import pandas as pd
-import streamlit as st
 from datetime import datetime
 
-# Sidkonfiguration (MÅSTE ligga absolut först i filen)
+# MÅSTE LIGGA PÅ RAD 1
 st.set_page_config(page_title="Föreningens Kvittohantering", layout="wide")
 
 # =========================================================================
-# 1. GLOBAL KONFIGURATION & SESSION STATE (MOLNANPASSAD)
+# 1. INITIERA ALLA DATALISTOR I SESSIONS-MINNET (SÄKER MOLNHANTERING)
 # =========================================================================
+if "lag" not in st.session_state:
+    st.session_state["lag"] = ["Dam Elit", "Herr Elit", "Dam div1", "Herr div2"]
+
+if "konton" not in st.session_state:
+    st.session_state["konton"] = [
+        "5800 Biljetter (tåg/buss/flyg/båt)",
+        "5830 Kost",
+        "5831 Logi",
+        "7330 Bilersättning",
+        "2999 Övrigt"
+    ]
+
+if "attestanter" not in st.session_state:
+    st.session_state["attestanter"] = []
+
+if "vantande_utlagg" not in st.session_state:
+    st.session_state["vantande_utlagg"] = []
+
+if "godkanda_utlagg" not in st.session_state:
+    st.session_state["godkanda_utlagg"] = []
+
+# E-postinställningar
 MAIL_AVSANDARE = "kvitto@ibklund.se"
 MAIL_LOSENORD = "lquelydfygnvizqv"
 MAIL_SMTP_SERVER = "://gmail.com"
 MAIL_PORT = 587
-
-DEFAULT_LAG = ["Dam Elit", "Herr Elit", "Dam div1", "Herr div2"]
-DEFAULT_KONTON = [
-    "5800 Biljetter (tåg/buss/flyg/båt)",
-    "5830 Kost",
-    "5831 Logi",
-    "7330 Bilersättning",
-    "2999 Övrigt"
-]
-
-# Initiera sessionsminnet om det inte redan finns (ersätter JSON-filen för molnet)
-if "lag" not in st.session_state:
-    st.session_state["lag"] = DEFAULT_LAG.copy()
-if "konton" not in st.session_state:
-    st.session_state["konton"] = DEFAULT_KONTON.copy()
-if "attestanter" not in st.session_state:
-    st.session_state["attestanter"] = []
-if "vantande_utlagg" not in st.session_state:
-    st.session_state["vantande_utlagg"] = []
-if "godkanda_utlagg" not in st.session_state:
-    st.session_state["godkanda_utlagg"] = []
 
 def skicka_notis_mail(till_epost, attestant_namn, lag_namn, belopp, kategori, inskickat_av):
     msg = MIMEMultipart()
@@ -54,20 +55,16 @@ def skicka_notis_mail(till_epost, attestant_namn, lag_namn, belopp, kategori, in
     except:
         return False
 
-# Genvägar för att hålla resten av koden ren
-nu_lag = st.session_state["lag"]
-nu_konton = st.session_state["konton"]
-
-# Struktur för flikar
+# Skapa flikarna
 flik_registrera, flik_attestera, flik_admin = st.tabs([
     "📝 Registrera Utlägg", 
     "✅ Attestfunktion", 
     "⚙️ Adminpanel"
 ])
 
-# -------------------------------------------------------------------------
+# =========================================================================
 # FLIK 1: REGISTRERA UTLÄGG
-# -------------------------------------------------------------------------
+# =========================================================================
 with flik_registrera:
     st.title("📝 Registrera nytt utlägg")
     st.info(
@@ -81,8 +78,8 @@ with flik_registrera:
 
     with st.form("huvud_reg_form", clear_on_submit=True):
         namn_reg = st.text_input("Ditt Namn (Obligatoriskt):", placeholder="t.ex. Johan Larsson")
-        lag_reg = st.selectbox("Välj lag/avdelning:", options=nu_lag)
-        konto_reg = st.selectbox("Välj kategori/konto för kvittot:", options=nu_konton)
+        lag_reg = st.selectbox("Välj lag/avdelning:", options=st.session_state["lag"])
+        konto_reg = st.selectbox("Välj kategori/konto för kvittot:", options=st.session_state["konton"])
         belopp_reg = st.number_input("Belopp (kr):", min_value=0.0, step=1.0, value=0.0)
         
         st.subheader("Bankuppgifter för utbetalning")
@@ -140,9 +137,9 @@ with flik_registrera:
                 st.session_state.uploader_id += 1
                 st.rerun()
 
-# -------------------------------------------------------------------------
+# =========================================================================
 # FLIK 2: ATTESTFUNKTION
-# -------------------------------------------------------------------------
+# =========================================================================
 with flik_attestera:
     st.title("✅ Attestfunktion")
     
@@ -150,7 +147,7 @@ with flik_attestera:
     attestant_namn_lista = [a["namn"] for a in st.session_state["attestanter"]]
     
     if not attestant_namn_lista:
-        st.warning("⚠️ Inga attestanter är upplagda ännu. Lägg till en under Adminpanelen.")
+        st.warning("⚠️ Inga attestanter är upplagda ännu. Gå till Adminpanelen för att lägga till en attestant.")
     else:
         aktiv_attestant_namn = st.selectbox("Välj ditt namn för att se dina ärenden:", options=attestant_namn_lista)
         aktiv_attestant = next(a for a in st.session_state["attestanter"] if a["namn"] == aktiv_attestant_namn)
@@ -178,8 +175,8 @@ with flik_attestera:
                     with col_r:
                         nytt_konto = st.selectbox(
                             f"Konto (Korrigera om felaktigt):", 
-                            options=nu_konton, 
-                            index=nu_konton.index(utl["kategori"]) if utl["kategori"] in nu_konton else 0,
+                            options=st.session_state["konton"], 
+                            index=st.session_state["konton"].index(utl["kategori"]) if utl["kategori"] in st.session_state["konton"] else 0,
                             key=f"konto_{utl['id']}"
                         )
                         nytt_belopp = st.number_input(
@@ -214,3 +211,5 @@ with flik_attestera:
         if mina_godkanda:
             df_spiris = pd.DataFrame(mina_godkanda)
             kolumner_att_visa = ["namn", "lag", "kategori", "belopp", "bank", "clearing", "kontonummer", "datum_attesterat"]
+            st.dataframe(df_spiris[kolumner_att_visa])
+            
