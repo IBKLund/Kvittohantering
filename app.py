@@ -14,17 +14,25 @@ ADMIN_LOSENORD = "admin123"  # <-- Byt ut till ditt önskade adminlösenord för
 DATA_FILE = "admin_data.json"
 
 MAIL_AVSANDARE = "kvitto@ibklund.se"
-MAIL_LOSENORD = "uzierddeiefbongh"  # <-- INLAGT: Ditt specifika applösenord för Gmail
+MAIL_LOSENORD = "uzierddeiefbongh"  
 MAIL_SMTP_SERVER = "://gmail.com"
 MAIL_PORT = 587
 
-DEFAULT_LAG = ["Dam Elit", "Herr Elit", "Dam div1", "Herr div2"]
+# UTÖKAD: Inkluderar nu både lag och era två fasta aktiviteter
+DEFAULT_LAG = ["Dam Elit", "Herr Elit", "Dam div1", "Herr div2", "LundaLägret", "NovaOpen"]
+
 DEFAULT_KONTON = [
     "5800 Biljetter (tåg/buss/flyg/båt)",
     "5830 Kost",
     "5831 Logi",
     "7330 Bilersättning",
     "2999 Övrigt"
+]
+
+# INLAGDA STANDARDATTESTANTER: Ligger som grund om databasen är tom
+DEFAULT_ATTESTANTER = [
+    {"namn": "Christer Sölve", "epost": "christer@solve.se", "lag": ["Herr Elit"]},
+    {"namn": "Magnus Berglund", "epost": "magnus.berglund@ibklund.se", "lag": ["LundaLägret", "NovaOpen"]}
 ]
 
 # =========================================================================
@@ -34,7 +42,7 @@ def ladda_data():
     default_struktur = {
         "lag": DEFAULT_LAG.copy(),
         "konton": DEFAULT_KONTON.copy(),
-        "attestanter": [],
+        "attestanter": DEFAULT_ATTESTANTER.copy(), # Lägger in Christer och Magnus som standard
         "vantande_utlagg": [],
         "godkanda_utlagg": []
     }
@@ -47,6 +55,11 @@ def ladda_data():
         for k, v in default_struktur.items():
             if k not in data or not isinstance(data[k], type(v)):
                 data[k] = v
+        
+        # Om attestantlistan har blivit helt tom av en nollställning, lägg tillbaka standarden
+        if not data["attestanter"]:
+            data["attestanter"] = DEFAULT_ATTESTANTER.copy()
+            
         return data
     except:
         return default_struktur
@@ -63,7 +76,7 @@ def spara_data():
         with open(DATA_FILE, "w", encoding="utf-8") as f:
             json.dump(temp_data, f, ensure_ascii=False, indent=4)
     except Exception as e:
-        pass  # Ignorera om molnet tillfälligt blockerar skrivning under rendering
+        pass
 
 # Läs in data till session_state en gång per körning om det saknas
 if "lag" not in st.session_state:
@@ -106,7 +119,7 @@ if sida == "📝 Registrera Utlägg":
     st.info("ℹ️ Utbetalning sker runt den 25:e varje månad. Kvitton efter den 10:e utbetalas nästa månad.")
     
     namn_reg = st.text_input("Ditt Namn:")
-    lag_reg = st.selectbox("Välj lag:", options=st.session_state["lag"])
+    lag_reg = st.selectbox("Välj lag / aktivitet:", options=st.session_state["lag"]) # Ändrad rubrik text
     konto_reg = st.selectbox("Välj konto:", options=st.session_state["konton"])
     belopp_reg = st.number_input("Belopp (kr):", min_value=0.0, step=1.0)
     
@@ -168,12 +181,12 @@ elif sida == "✅ Attestfunktion":
             aktuell_ko = [u for u in st.session_state["vantande_utlagg"] if u["lag"] in mina_lag]
             
             if not aktuell_ko:
-                st.info("📥 Inga nya utlägg ligger i kön för dina lag just nu.")
+                st.info("📥 Inga nya utlägg ligger i kön för dina lag/aktiviteter just nu.")
             else:
                 for utl in list(st.session_state["vantande_utlagg"]):
                     if utl["lag"] in mina_lag:
                         with st.container(border=True):
-                            st.write(f"**Inskickat av:** {utl['namn']} | **Lag:** {utl['lag']}")
+                            st.write(f"**Inskickat av:** {utl['namn']} | **Lag/Aktivitet:** {utl['lag']}")
                             st.write(f"**Bank:** {utl['bank']} | **Clearing:** {utl['clearing']} | **Konto:** {utl['kontonummer']}")
                             
                             nytt_konto = st.selectbox(
@@ -201,15 +214,3 @@ elif sida == "✅ Attestfunktion":
                                     st.success("Godkänt!")
                                     st.rerun()
                             with col_b2:
-                                if st.button(f"🗑️ Radera utlägg #{utl['id']}", key=f"r_{utl['id']}"):
-                                    st.session_state["vantande_utlagg"].remove(utl)
-                                    spara_data()
-                                    st.warning("Utlägg raderat!")
-                                    st.rerun()
-
-            # Spiris Export
-            st.divider()
-            st.subheader("Export till Spiris")
-            mina_godkanda = [u for u in st.session_state["godkanda_utlagg"] if u["lag"] in mina_lag]
-            if mina_godkanda:
-                df_spiris = pd.DataFrame(mina_godkanda)
