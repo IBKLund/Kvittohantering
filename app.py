@@ -2,9 +2,11 @@ import streamlit as st
 import pandas as pd
 import json
 import os
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from datetime import datetime
 
-# 1. INITIALISERING OCH INSTÄLLNINGAR
 st.set_page_config(page_title="IBK Lund - Kvittohantering", layout="wide")
 DATA_FILE = "admin_data.json"
 
@@ -21,15 +23,15 @@ DEFAULT_ATTESTANTER = [
 ]
 
 def ladda_data():
-    struktur = {"lag": DEFAULT_LAG.copy(), "konton": DEFAULT_KONTON.copy(), "attestanter": DEFAULT_ATTESTANTER.copy(), "vantande_utlagg": [], "godkanda_utlagg": []}
-    if not os.path.exists(DATA_FILE): return struktur
+    str_dat = {"lag": DEFAULT_LAG.copy(), "konton": DEFAULT_KONTON.copy(), "attestanter": DEFAULT_ATTESTANTER.copy(), "vantande_utlagg": [], "godkanda_utlagg": []}
+    if not os.path.exists(DATA_FILE): return str_dat
     try:
         with open(DATA_FILE, "r", encoding="utf-8") as f: data = json.load(f)
-        for k, v in struktur.items():
+        for k, v in str_dat.items():
             if k not in data or not isinstance(data[k], type(v)): data[k] = v
         if not data["attestanter"]: data["attestanter"] = DEFAULT_ATTESTANTER.copy()
         return data
-    except: return struktur
+    except: return str_dat
 
 def spara_data():
     try:
@@ -41,7 +43,6 @@ if "lag" not in st.session_state or not st.session_state["attestanter"]:
     for k, v in ladda_data().items(): st.session_state[k] = v
     spara_data()
 
-# Initiera smart minne för användarens uppgifter om det inte finns
 if "minne_namn" not in st.session_state: st.session_state["minne_namn"] = ""
 if "minne_bank" not in st.session_state: st.session_state["minne_bank"] = ""
 if "minne_clearing" not in st.session_state: st.session_state["minne_clearing"] = ""
@@ -49,9 +50,6 @@ if "minne_konto" not in st.session_state: st.session_state["minne_konto"] = ""
 if "bekraftelse_meddelande" not in st.session_state: st.session_state["bekraftelse_meddelande"] = ""
 
 def skicka_notis_mail(till, namn, lag, belopp, kat, av):
-    import smtplib
-    from email.mime.multipart import MIMEMultipart
-    from email.mime.text import MIMEText
     msg = MIMEMultipart()
     msg["From"], msg["To"], msg["Subject"] = MAIL_AVSANDARE, till, f"Nytt utlägg att attestera - {lag}"
     text = f"Hej {namn},\n\nEtt nytt utlägg har registrerats av {av} för {lag}.\n• Kategori: {kat}\n• Belopp: {belopp} kr\n\nLogga in för att hantera ärendet."
@@ -65,7 +63,6 @@ def skicka_notis_mail(till, namn, lag, belopp, kat, av):
         return True
     except: return False
 
-# 2. NAVIGATION (SIDOMENY)
 st.sidebar.title("IBK Lund")
 sida = st.sidebar.radio("Välj funktion:", ["📝 Registrera Utlägg", "✅ Attestfunktion", "⚙️ Adminpanel"])
 
@@ -75,48 +72,36 @@ sida = st.sidebar.radio("Välj funktion:", ["📝 Registrera Utlägg", "✅ Atte
 if sida == "📝 Registrera Utlägg":
     st.title("📝 Registrera nytt utlägg")
     st.info("ℹ️ Utbetalning sker runt den 25:e varje månad. Kvitton efter den 10:e utbetalas nästa månad.")
-    
     if st.session_state["bekraftelse_meddelande"]:
         st.success(st.session_state["bekraftelse_meddelande"])
         st.session_state["bekraftelse_meddelande"] = ""
-
     with st.form("huvud_reg_form", clear_on_submit=True):
         namn_reg = st.text_input("Ditt Namn:", value=st.session_state["minne_namn"])
         lag_reg = st.selectbox("Välj lag / aktivitet:", options=st.session_state["lag"])
         konto_reg = st.selectbox("Välj konto:", options=st.session_state["konton"])
         belopp_reg = st.number_input("Belopp (kr):", min_value=0.0, step=1.0)
-        
         st.subheader("Bankuppgifter för utbetalning")
         bank_reg = st.text_input("Bank:", value=st.session_state["minne_bank"])
         clearing_reg = st.text_input("Clearingnummer:", value=st.session_state["minne_clearing"])
         konto_nr_reg = st.text_input("Kontonummer:", value=st.session_state["minne_konto"])
         fil_reg = st.file_uploader("Ladda upp kvitto", type=["pdf", "png", "jpg", "jpeg"])
-        
-        skicka_btn = st.form_submit_button("Skicka in utlägg", type="primary")
-        
-        if skicka_btn:
+        if st.form_submit_button("Skicka in utlägg", type="primary"):
             if namn_reg and bank_reg and clearing_reg and konto_nr_reg:
                 st.session_state["minne_namn"] = namn_reg.strip()
                 st.session_state["minne_bank"] = bank_reg.strip()
                 st.session_state["minne_clearing"] = clearing_reg.strip()
                 st.session_state["minne_konto"] = konto_nr_reg.strip()
-                
                 utl = {"id": len(st.session_state["vantande_utlagg"]) + len(st.session_state["godkanda_utlagg"]) + 1, "namn": namn_reg.strip(), "lag": lag_reg, "kategori": konto_reg, "belopp": belopp_reg, "bank": bank_reg.strip(), "clearing": clearing_reg.strip(), "kontonummer": konto_nr_reg.strip(), "filnamn": fil_reg.name if fil_reg else "Inget underlag", "datum_inskickat": datetime.now().strftime("%Y-%m-%d")}
                 st.session_state["vantande_utlagg"].append(utl)
                 spara_data()
-                
-                attestant_namn = []
+                att_namn = []
                 for a in st.session_state["attestanter"]:
                     if lag_reg in a.get("lag", []):
-                        attestant_namn.append(a["namn"])
+                        att_namn.append(a["namn"])
                         skicka_notis_mail(a["epost"], a["namn"], lag_reg, belopp_reg, konto_reg, namn_reg)
-                
-                if attestant_namn:
-                    st.session_state["bekraftelse_meddelande"] = f"✅ Utlägget på {belopp_reg} kr har registrerats och väntar nu på attestering av {' & '.join(attestant_namn)}!"
-                else:
-                    st.session_state["bekraftelse_meddelande"] = f"✅ Utlägget på {belopp_reg} kr har registrerats! (Ingen attestant är kopplad till {lag_reg} ännu)."
+                st.session_state["bekraftelse_meddelande"] = f"✅ Utlägget har registrerats och väntar på attestering av {' & '.join(att_namn)}!" if att_namn else f"✅ Utlägget registrerat! (Ingen attestant kopplad till {lag_reg})."
                 st.rerun()
-            else: st.error("Du måste fylla i alla fält (Namn, Bank, Clearing, Kontonummer).")
+            else: st.error("Du måste fylla i alla bank- och namnuppgifter.")
 
 # =========================================================================
 # MENY 2: ATTESTFUNKTION
@@ -130,32 +115,24 @@ elif sida == "✅ Attestfunktion":
         if aktiv != "-- Välj namn --":
             match = next(a for a in st.session_state["attestanter"] if a["namn"] == aktiv)
             st.success(f"Inloggad: {aktiv}. Behörig för: {', '.join(match['lag'])}")
-            
             for u in list(st.session_state["vantande_utlagg"]):
                 if u["lag"] in match["lag"]:
                     with st.container(border=True):
                         st.write(f"**Från:** {u['namn']} | **Val:** {u['lag']} | **Bank:** {u['bank']} {u['clearing']}-{u['kontonummer']} | **Fil:** {u['filnamn']}")
                         nk = st.selectbox(f"Konto för #{u['id']}:", options=st.session_state["konton"], index=st.session_state["konton"].index(u["kategori"]) if u["kategori"] in st.session_state["konton"] else 0, key=f"k_{u['id']}")
                         nb = st.number_input(f"Belopp för #{u['id']}:", value=float(u["belopp"]), key=f"b_{u['id']}")
-                        
                         if st.button(f"Godkänn #{u['id']}", type="primary", key=f"g_{u['id']}"):
                             u["kategori"], u["belopp"], u["attesterat_av"], u["datum_attesterat"] = nk, nb, aktiv, datetime.now().strftime("%Y-%m-%d")
-                            st.session_state["godkanda_utlagg"].append(u)
-                            st.session_state["vantande_utlagg"].remove(u)
-                            spara_data(); st.rerun()
+                            st.session_state["godkanda_utlagg"].append(u); st.session_state["vantande_utlagg"].remove(u); spara_data(); st.rerun()
                         if st.button(f"Radera #{u['id']}", key=f"r_{u['id']}"):
-                            st.session_state["vantande_utlagg"].remove(u)
-                            spara_data(); st.rerun()
-
+                            st.session_state["vantande_utlagg"].remove(u); spara_data(); st.rerun()
             st.subheader("Export till Spiris")
-            mg = [u for u in st.session_state["godkanda_utlagg"] if u["lag"] in match["lag"]]
-            if mg:
-                df = pd.DataFrame(mg)
+            df = pd.DataFrame([u for u in st.session_state["godkanda_utlagg"] if u["lag"] in match["lag"]])
+            if not df.empty:
                 cols = ["namn", "lag", "kategori", "belopp", "bank", "clearing", "kontonummer", "datum_attesterat"]
                 st.dataframe(df[cols])
                 st.download_button("📥 Ladda ner CSV för Spiris", data=df[cols].to_csv(index=False, encoding="utf-8-sig"), file_name=f"spiris_{aktiv}.csv", mime="text/csv")
             else: st.info("Inga godkända utlägg finns att exportera.")
-
             st.subheader("Din historik")
             hist = [u for u in st.session_state["godkanda_utlagg"] if u.get("attesterat_av") == aktiv]
             if hist: st.dataframe(pd.DataFrame(hist)[["datum_attesterat", "namn", "lag", "kategori", "belopp"]])
@@ -171,4 +148,14 @@ elif sida == "⚙️ Adminpanel":
     
     st.subheader("Hantering av Lag & Aktiviteter")
     st.write("**Befintliga val:** " + ", ".join(st.session_state["lag"]))
-    nl = st.text_input("Lägg till lag eller aktivitet:", key="admin_lag")
+    nl = st.text_input("Lägg till lag/aktivitet:", key="admin_lag")
+    if st.button("Spara nytt val", key="as_lag"):
+        if nl and nl not in st.session_state["lag"]: st.session_state["lag"].append(nl.strip()); spara_data(); st.rerun()
+            
+    st.divider()
+    st.subheader("Hantering av Bokföringskonton")
+    st.write("**Befintliga konton:** " + ", ".join(st.session_state["konton"]))
+    nk = st.text_input("Lägg till kontonamn:", key="admin_konto")
+    if st.button("Spara nytt konto", key="as_konto"):
+        if nk and nk not in st.session_state["konton"]: st.session_state["konton"].append(nk.strip()); spara_data(); st.rerun()
+            
