@@ -46,10 +46,51 @@ for m in ["minne_namn", "minne_bank", "minne_clearing", "minne_konto", "bekrafte
     if m not in st.session_state: st.session_state[m] = "" if m != "an_lag" else []
 
 def skicka_notis_mail(till, namn, lag, belopp, kat, av):
+    # ÄNDRA HÄR: Klistra in den exakta länken till din Streamlit-app (t.ex. https://streamlit.app)
+    APP_LANK = "https://kvittohantering.streamlit.app/" 
+
+    msg_html = f"""
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">
+        <div style="background-color: #003366; padding: 20px; text-align: center; color: white;">
+            <h2 style="margin: 0; font-size: 22px;">IBK Lund</h2>
+            <p style="margin: 5px 0 0 0; opacity: 0.8;">Kvitto- & Utläggshantering</p>
+        </div>
+        <div style="padding: 24px; line-height: 1.6; color: #333;">
+            <p style="font-size: 16px; margin-top: 0;">Hej <b>{namn}</b>,</p>
+            <p>Ett nytt utlägg har registrerats och väntar på ditt godkännande.</p>
+            
+            <div style="background-color: #f9f9f9; border-left: 4px solid #003366; padding: 15px; margin: 20px 0; border-radius: 4px;">
+                <table style="width: 100%; border-collapse: collapse;">
+                    <tr><td style="padding: 5px 0; color: #666; width: 120px;"><b>Inskickat av:</b></td><td style="padding: 5px 0;">{av}</td></tr>
+                    <tr><td style="padding: 5px 0; color: #666;"><b>Lag/Aktivitet:</b></td><td style="padding: 5px 0;">{lag}</td></tr>
+                    <tr><td style="padding: 5px 0; color: #666;"><b>Kategori:</b></td><td style="padding: 5px 0;">{kat}</td></tr>
+                    <tr><td style="padding: 5px 0; color: #666;"><b>Belopp:</b></td><td style="padding: 5px 0; font-size: 16px; color: #003366;"><b>{belopp} kr</b></td></tr>
+                </table>
+            </div>
+            
+            <p style="margin-bottom: 25px;">Vänligen logga in i appen för att granska underlaget, korrigera eventuella uppgifter och attestera utlägget.</p>
+            
+            <div style="text-align: center; margin: 30px 0;">
+                <a href="{APP_LANK}" style="background-color: #003366; color: white; padding: 12px 30px; text-decoration: none; font-weight: bold; border-radius: 5px; display: inline-block; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">Gå till Attestfunktionen</a>
+            </div>
+        </div>
+        <div style="background-color: #f4f4f4; padding: 15px; text-align: center; font-size: 12px; color: #888; border-top: 1px solid #ddd;">
+            Detta är ett automatiskt meddelande från IBK Lunds kvittoapp.
+        </div>
+    </div>
+    """
+
     try:
-        resend.Emails.send({"from": MAIL_AVSANDARE, "to": till, "subject": f"Nytt utlägg - {lag}", "html": f"<p>Hej {namn},</p><p>Utlägg registrerat av {av} för {lag}.<br>Belopp: {belopp} kr<br>Konto: {kat}</p>"})
+        resend.Emails.send({
+            "from": "IBK Lund Kvittohantering <onboarding@resend.dev>", # Inlagt visningsnamn här!
+            "to": till,
+            "subject": f"🔔 Nytt utlägg att attestera - {lag}",
+            "html": msg_html
+        })
         return True
-    except: return False
+    except: 
+        return False
+
 
 st.sidebar.title("IBK Lund")
 sida = st.sidebar.radio("Välj funktion:", ["📝 Registrera Utlägg", "✅ Attestfunktion", "⚙️ Adminpanel"])
