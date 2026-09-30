@@ -165,8 +165,7 @@ elif sida == "⚙️ Adminpanel":
     ae = st.text_input("E-post till attestant:", key="an_mail")
     al = st.multiselect("Välj lag/aktiviteter:", options=st.session_state["lag"], key="an_lag")
     if st.button("Spara attestant", key="as_att"):
-        if an and ae and al:
-    st.session_state["attestanter"].append({"namn": an.strip(), "epost": ae.strip(), "lag": al})
+        if an and ae and al: st.session_state["attestanter"].append({"namn": an.strip(), "epost": ae.strip(), "lag": al})
     spara_data(); st.success("Attestant sparad!"); st.rerun()
     if st.session_state["attestanter"]:
     st.write("### Registrerade attestanter just nu:")
