@@ -10,7 +10,7 @@ st.set_page_config(page_title="IBK Lund - Kvittohantering", layout="wide")
 # =========================================================================
 # LÖSENORD OCH INSTÄLLNINGAR
 # =========================================================================
-ADMIN_LOSENORD = "IBKLund2022!"  # <-- Ditt adminlösenord
+ADMIN_LOSENORD = "admin123"  # <-- Ditt adminlösenord
 DATA_FILE = "admin_data.json"
 
 MAIL_AVSANDARE = "kvitto@ibklund.se"
@@ -79,9 +79,9 @@ if "lag" not in st.session_state or not st.session_state["attestanter"]:
         st.session_state[nyckel] = varde
     spara_data()
 
-# Hantera admin-inloggningstillstånd
-if "admin_inloggad" not in st.session_state:
-    st.session_state["admin_inloggad"] = False
+# Trygg hantering av admin-inloggning i minnet
+if "admin_ok" not in st.session_state:
+    st.session_state["admin_ok"] = False
 
 def skicka_notis_mail(till_epost, attestant_namn, lag_namn, belopp, kategori, inskickat_av):
     import smtplib
@@ -104,26 +104,26 @@ def skicka_notis_mail(till_epost, attestant_namn, lag_namn, belopp, kategori, in
         return False
 
 # =========================================================================
-# SIDOMENY OCH INLOGGNINGSKONTROLL
+# SIDOMENY
 # =========================================================================
 st.sidebar.title("IBK Lund")
 st.sidebar.subheader("Kvitto & Utlägg")
 sida = st.sidebar.radio("Välj funktion:", ["📝 Registrera Utlägg", "✅ Attestfunktion", "⚙️ Adminpanel"])
 
-# Om användaren klickar på Adminpanelen, visa ett inloggningsformulär med knapp i sidebar
+# Inloggningskontroll låst i sidomenyn
 if sida == "⚙️ Adminpanel":
     st.sidebar.markdown("---")
-    if not st.session_state["admin_inloggad"]:
-        pwd_input = st.sidebar.text_input("Admin lösenord:", type="password")
+    if not st.session_state["admin_ok"]:
+        pwd_input = st.sidebar.text_input("Admin lösenord:", type="password", key="sidebar_pwd_field")
         if st.sidebar.button("🔓 Logga in som Admin"):
             if pwd_input == ADMIN_LOSENORD:
-                st.session_state["admin_inloggad"] = True
+                st.session_state["admin_ok"] = True
                 st.rerun()
             else:
-                st.sidebar.error("Felaktigt lösenord!")
+                st.sidebar.error("Fel lösenord!")
     else:
         if st.sidebar.button("🔒 Logga ut"):
-            st.session_state["admin_inloggad"] = False
+            st.session_state["admin_ok"] = False
             st.rerun()
 
 # =========================================================================
@@ -181,7 +181,7 @@ elif sida == "✅ Attestfunktion":
     
     attestant_namn_lista = [a["namn"] for a in st.session_state["attestanter"]]
     if not attestant_namn_lista:
-        st.warning("🔒 Inga godkända attestanter finns i systemet ännu. Be admin lägga till dig under Adminpanelen.")
+        st.warning("🔒 Inga godkända attestanter finns i systemet ännu.")
     else:
         aktiv_attestant = st.selectbox("Välj ditt namn för att logga in i attestvyn:", options=["-- Välj namn --"] + attestant_namn_lista)
         
@@ -222,3 +222,4 @@ elif sida == "✅ Attestfunktion":
                                 utl["attesterat_av"] = aktiv_attestant
                                 utl["datum_attesterat"] = datetime.now().strftime("%Y-%m-%d")
                                 st.session_state["godkanda_utlagg"].append(utl)
+                                st.session_state["vantande_utlagg"].remove(utl)
