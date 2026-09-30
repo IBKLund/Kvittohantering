@@ -8,9 +8,8 @@ from datetime import datetime
 st.set_page_config(page_title="IBK Lund - Kvittohantering", layout="wide")
 
 # =========================================================================
-# LÖSENORD OCH INSTÄLLNINGAR
+# KONFIGURATION OCH INSTÄLLNINGAR
 # =========================================================================
-ADMIN_LOSENORD = "IBKLund2022!"  # <-- Ditt adminlösenord
 DATA_FILE = "admin_data.json"
 
 MAIL_AVSANDARE = "kvitto@ibklund.se"
@@ -79,10 +78,6 @@ if "lag" not in st.session_state or not st.session_state["attestanter"]:
         st.session_state[nyckel] = varde
     spara_data()
 
-# Trygg hantering av admin-inloggning i minnet
-if "admin_ok" not in st.session_state:
-    st.session_state["admin_ok"] = False
-
 def skicka_notis_mail(till_epost, attestant_namn, lag_namn, belopp, kategori, inskickat_av):
     import smtplib
     from email.mime.multipart import MIMEMultipart
@@ -109,22 +104,6 @@ def skicka_notis_mail(till_epost, attestant_namn, lag_namn, belopp, kategori, in
 st.sidebar.title("IBK Lund")
 st.sidebar.subheader("Kvitto & Utlägg")
 sida = st.sidebar.radio("Välj funktion:", ["📝 Registrera Utlägg", "✅ Attestfunktion", "⚙️ Adminpanel"])
-
-# Inloggningskontroll låst i sidomenyn
-if sida == "⚙️ Adminpanel":
-    st.sidebar.markdown("---")
-    if not st.session_state["admin_ok"]:
-        pwd_input = st.sidebar.text_input("Admin lösenord:", type="password", key="sidebar_pwd_field")
-        if st.sidebar.button("🔓 Logga in som Admin"):
-            if pwd_input == ADMIN_LOSENORD:
-                st.session_state["admin_ok"] = True
-                st.rerun()
-            else:
-                st.sidebar.error("Fel lösenord!")
-    else:
-        if st.sidebar.button("🔒 Logga ut"):
-            st.session_state["admin_ok"] = False
-            st.rerun()
 
 # =========================================================================
 # MENY 1: REGISTRERA UTLÄGG
@@ -181,7 +160,7 @@ elif sida == "✅ Attestfunktion":
     
     attestant_namn_lista = [a["namn"] for a in st.session_state["attestanter"]]
     if not attestant_namn_lista:
-        st.warning("🔒 Inga godkända attestanter finns i systemet ännu.")
+        st.warning("🔒 Inga godkända attestanter finns i systemet ännu. Gå till Adminpanelen för att lägga till en.")
     else:
         aktiv_attestant = st.selectbox("Välj ditt namn för att logga in i attestvyn:", options=["-- Välj namn --"] + attestant_namn_lista)
         
@@ -223,3 +202,18 @@ elif sida == "✅ Attestfunktion":
                                 utl["datum_attesterat"] = datetime.now().strftime("%Y-%m-%d")
                                 st.session_state["godkanda_utlagg"].append(utl)
                                 st.session_state["vantande_utlagg"].remove(utl)
+                                spara_data()
+                                st.success("Godkänt!")
+                                st.rerun()
+                                
+                            if st.button(f"🗑️ Radera utlägg #{utl['id']}", key=f"r_{utl['id']}"):
+                                st.session_state["vantande_utlagg"].remove(utl)
+                                spara_data()
+                                st.warning("Utlägg raderat!")
+                                st.rerun()
+
+            # Spiris Export
+            st.divider()
+            st.subheader("Export till Spiris")
+            mina_godkanda = [u for u in st.session_state["godkanda_utlagg"] if u["lag"] in mina_lag]
+            if mina_godkanda:
