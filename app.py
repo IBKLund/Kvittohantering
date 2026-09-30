@@ -10,7 +10,7 @@ st.set_page_config(page_title="IBK Lund - Kvittohantering", layout="wide")
 # =========================================================================
 # LÖSENORD OCH INSTÄLLNINGAR
 # =========================================================================
-ADMIN_LOSENORD = "admin123"  # <-- Byt ut till ditt önskade adminlösenord för appen!
+ADMIN_LOSENORD = "admin123"  # <-- Ditt önskade adminlösenord
 DATA_FILE = "admin_data.json"
 
 MAIL_AVSANDARE = "kvitto@ibklund.se"
@@ -18,7 +18,6 @@ MAIL_LOSENORD = "uzierddeiefbongh"
 MAIL_SMTP_SERVER = "://gmail.com"
 MAIL_PORT = 587
 
-# Inkluderar både lag och era två fasta aktiviteter
 DEFAULT_LAG = ["Dam Elit", "Herr Elit", "Dam div1", "Herr div2", "LundaLägret", "NovaOpen"]
 
 DEFAULT_KONTON = [
@@ -29,7 +28,6 @@ DEFAULT_KONTON = [
     "2999 Övrigt"
 ]
 
-# Standardattestanter som ska finnas med som bas
 DEFAULT_ATTESTANTER = [
     {"namn": "Christer Sölve", "epost": "christer@solve.se", "lag": ["Herr Elit"]},
     {"namn": "Magnus Berglund", "epost": "magnus.berglund@ibklund.se", "lag": ["LundaLägret", "NovaOpen"]}
@@ -51,15 +49,11 @@ def ladda_data():
     try:
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-        # Säkerställ att alla fält finns med rätt datatyp
         for k, v in default_struktur.items():
             if k not in data or not isinstance(data[k], type(v)):
                 data[k] = v
-        
-        # REPARATION: Om listan blivit tom, tvinga in standardpersonerna
-        if not data["attestanter"] or len(data["attestanter"]) == 0:
+        if not data["attestanter"]:
             data["attestanter"] = DEFAULT_ATTESTANTER.copy()
-            
         return data
     except:
         return default_struktur
@@ -78,12 +72,16 @@ def spara_data():
     except Exception as e:
         pass
 
-# Läs in data till session_state en gång per körning om det saknas
+# Läs in data till session_state en gång per körning
 if "lag" not in st.session_state or not st.session_state["attestanter"]:
     sparad_data = ladda_data()
     for nyckel, varde in sparad_data.items():
         st.session_state[nyckel] = varde
     spara_data()
+
+# Hantera admin-inloggningstillstånd
+if "admin_inloggad" not in st.session_state:
+    st.session_state["admin_inloggad"] = False
 
 def skicka_notis_mail(till_epost, attestant_namn, lag_namn, belopp, kategori, inskickat_av):
     import smtplib
@@ -106,11 +104,20 @@ def skicka_notis_mail(till_epost, attestant_namn, lag_namn, belopp, kategori, in
         return False
 
 # =========================================================================
-# SIDOMENY
+# SIDOMENY OCH INLOGGNINGSKONTROLL
 # =========================================================================
 st.sidebar.title("IBK Lund")
 st.sidebar.subheader("Kvitto & Utlägg")
 sida = st.sidebar.radio("Välj funktion:", ["📝 Registrera Utlägg", "✅ Attestfunktion", "⚙️ Adminpanel"])
+
+# Om användaren klickar på Adminpanelen, visa inloggningsfält i sidebar
+if sida == "⚙️ Adminpanel":
+    st.sidebar.markdown("---")
+    pwd_input = st.sidebar.text_input("Admin lösenord:", type="password")
+    if pwd_input == ADMIN_LOSENORD:
+        st.session_state["admin_inloggad"] = True
+    else:
+        st.session_state["admin_inloggad"] = False
 
 # =========================================================================
 # MENY 1: REGISTRERA UTLÄGG
@@ -213,6 +220,3 @@ elif sida == "✅ Attestfunktion":
                                 st.success("Godkänt!")
                                 st.rerun()
                                 
-                            if st.button(f"🗑️ Radera utlägg #{utl['id']}", key=f"r_{utl['id']}"):
-                                st.session_state["vantande_utlagg"].remove(utl)
-                                spara_data()
