@@ -14,10 +14,10 @@ DATA_FILE = "admin_data.json"
 
 MAIL_AVSANDARE = "kvitto@ibklund.se"  # <-- Din Workspace-mail
 MAIL_LOSENORD = "lquelydfygnvizqv"     # <-- Ditt 16-siffriga Applösenord
-MAIL_SMTP_SERVER = "smtp.gmail.com"     # <-- Korrekt Gmail SMTP
+MAIL_SMTP_SERVER = "://gmail.com"     # <-- Korrekt Gmail SMTP
 MAIL_PORT = 587
 
-# Initiala standardvärden om filen inte finns
+# Initiala standardvärden om filen inte finns eller är tom
 DEFAULT_LAG = ["Dam Elit", "Herr Elit", "Dam div1", "Herr div2"]
 DEFAULT_KONTON = [
     "5800 Biljetter (tåg/buss/flyg/båt)",
@@ -31,11 +31,12 @@ def ladda_system_data():
     default_data = {
         "lag": DEFAULT_LAG,
         "konton": DEFAULT_KONTON,
-        "attestanter": [],       # Lista med dicts: {"namn": "", "epost": "", "lag": ["Lag A", "Lag B"]}
+        "attestanter": [],       # VIKTIG: Denna saknades i ert gamla system
         "vantande_utlagg": [],
         "godkanda_utlagg": []
     }
     
+    # Om filen inte finns alls, skapa den med standardvärden
     if not os.path.exists(DATA_FILE):
         with open(DATA_FILE, "w", encoding="utf-8") as f:
             json.dump(default_data, f, ensure_ascii=False, indent=4)
@@ -45,12 +46,17 @@ def ladda_system_data():
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
         
-        # FELSÄKRING: Om filen finns men saknar nya fält, tvinga in dem
-        for nyckel, standard_varde in default_data.items():
-            if nyckel not in data or not isinstance(data[nyckel], type(standard_varde)):
-                data[nyckel] = standard_varde
+        # AGGRESSIV FELSÄKRING: Om något av dessa fält saknas (eller är felaktigt), 
+        # tvingar vi in en tom lista eller standardvärden istället för att krascha fliken.
+        if "lag" not in data or not data["lag"]: data["lag"] = DEFAULT_LAG
+        if "konton" not in data or not data["konton"]: data["konton"] = DEFAULT_KONTON
+        if "attestanter" not in data or not isinstance(data["attestanter"], list): data["attestanter"] = []
+        if "vantande_utlagg" not in data: data["vantande_utlagg"] = []
+        if "godkanda_utlagg" not in data: data["godkanda_utlagg"] = []
+            
         return data
-    except:
+    except Exception as e:
+        # Om filen är korrupt eller låst av molnet, returnera standarddatan direkt
         return default_data
 
 def spara_system_data(data):
@@ -74,7 +80,7 @@ def skicka_notis_mail(till_epost, attestant_namn, lag_namn, belopp, kategori, in
     except:
         return False
 
-# Läs in data
+# Läs in och reparera datan omedelbart
 nu_data = ladda_system_data()
 
 # Sidans titel och layout
@@ -110,7 +116,7 @@ with flik_registrera:
         st.subheader("Bankuppgifter för utbetalning")
         col_b1, col_b2, col_b3 = st.columns(3)
         with col_b1:
-            bank_reg = st.text_input("Bankens namn:", placeholder="t.ex. Swedbank")
+            bank_reg = st.text_input("Bankens namn:", placeholder="e.g. Swedbank")
         with col_b2:
             clearing_reg = st.text_input("Clearingnummer:")
         with col_b3:
@@ -219,10 +225,3 @@ with flik_attestera:
                                 utl["attesterat_av"] = aktiv_attestant_namn
                                 utl["datum_attesterat"] = datetime.now().strftime("%Y-%m-%d")
                                 
-                                nu_data["godkanda_utlagg"].append(utl)
-                                nu_data["vantande_utlagg"] = [u for u in nu_data["vantande_utlagg"] if u["id"] != utl["id"]]
-                                spara_system_data(nu_data)
-                                st.success("Utlägg attesterat!")
-                                st.rerun()
-                        
-                        with col_b2:
