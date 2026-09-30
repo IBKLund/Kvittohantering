@@ -1,22 +1,19 @@
 import streamlit as st
 import pandas as pd
-import json
-import os
-import smtplib
+import json, os, smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from datetime import datetime
 
-st.set_page_config(page_title="IBK Lund - Kvittohantering", layout="wide")
+st.set_page_config(page_title="IBK Lund", layout="wide")
 DATA_FILE = "admin_data.json"
-
 MAIL_AVSANDARE = "kvitto@ibklund.se"
-MAIL_LOSENORD = "uzierddeiefbongh"  
+MAIL_LOSENORD = "uzierddeiefbongh"
 MAIL_SMTP_SERVER = "://gmail.com"
 MAIL_PORT = 587
 
 DEFAULT_LAG = ["Dam Elit", "Herr Elit", "Dam div1", "Herr div2", "LundaLägret", "NovaOpen"]
-DEFAULT_KONTON = ["5800 Biljetter (tåg/buss/flyg/båt)", "5830 Kost", "5831 Logi", "7330 Bilersättning", "2999 Övrigt"]
+DEFAULT_KONTON = ["5800 Biljetter", "5830 Kost", "5831 Logi", "7330 Bilersättning", "2999 Övrigt"]
 DEFAULT_ATTESTANTER = [
     {"namn": "Christer Sölve", "epost": "christer@solve.se", "lag": ["Herr Elit"]},
     {"namn": "Magnus Berglund", "epost": "magnus.berglund@ibklund.se", "lag": ["LundaLägret", "NovaOpen"]}
@@ -43,16 +40,13 @@ if "lag" not in st.session_state or not st.session_state["attestanter"]:
     for k, v in ladda_data().items(): st.session_state[k] = v
     spara_data()
 
-if "minne_namn" not in st.session_state: st.session_state["minne_namn"] = ""
-if "minne_bank" not in st.session_state: st.session_state["minne_bank"] = ""
-if "minne_clearing" not in st.session_state: st.session_state["minne_clearing"] = ""
-if "minne_konto" not in st.session_state: st.session_state["minne_konto"] = ""
-if "bekraftelse_meddelande" not in st.session_state: st.session_state["bekraftelse_meddelande"] = ""
+for m in ["minne_namn", "minne_bank", "minne_clearing", "minne_konto", "bekraftelse_meddelande"]:
+    if m not in st.session_state: st.session_state[m] = ""
 
 def skicka_notis_mail(till, namn, lag, belopp, kat, av):
     msg = MIMEMultipart()
     msg["From"], msg["To"], msg["Subject"] = MAIL_AVSANDARE, till, f"Nytt utlägg att attestera - {lag}"
-    text = f"Hej {namn},\n\nEtt nytt utlägg har registrerats av {av} för {lag}.\n• Kategori: {kat}\n• Belopp: {belopp} kr\n\nLogga in för att hantera ärendet."
+    text = f"Hej {namn},\n\nUtlägg registrerat av {av} för {lag}.\n• Kategori: {kat}\n• Belopp: {belopp} kr\n\nLogga in för att attestera."
     msg.attach(MIMEText(text, "plain", "utf-8"))
     try:
         s = smtplib.SMTP(MAIL_SMTP_SERVER, MAIL_PORT)
@@ -66,9 +60,6 @@ def skicka_notis_mail(till, namn, lag, belopp, kat, av):
 st.sidebar.title("IBK Lund")
 sida = st.sidebar.radio("Välj funktion:", ["📝 Registrera Utlägg", "✅ Attestfunktion", "⚙️ Adminpanel"])
 
-# =========================================================================
-# MENY 1: REGISTRERA UTLÄGG
-# =========================================================================
 if sida == "📝 Registrera Utlägg":
     st.title("📝 Registrera nytt utlägg")
     st.info("ℹ️ Utbetalning sker runt den 25:e varje månad. Kvitton efter den 10:e utbetalas nästa månad.")
@@ -99,13 +90,10 @@ if sida == "📝 Registrera Utlägg":
                     if lag_reg in a.get("lag", []):
                         att_namn.append(a["namn"])
                         skicka_notis_mail(a["epost"], a["namn"], lag_reg, belopp_reg, konto_reg, namn_reg)
-                st.session_state["bekraftelse_meddelande"] = f"✅ Utlägget har registrerats och väntar på attestering av {' & '.join(att_namn)}!" if att_namn else f"✅ Utlägget registrerat! (Ingen attestant kopplad till {lag_reg})."
+                st.session_state["bekraftelse_meddelande"] = f"✅ Utlägget har registrerats och väntar på attestering av {' & '.join(att_namn)}!" if att_namn else f"✅ Utlägget registrerat! (Ingen attestant kopplad)."
                 st.rerun()
             else: st.error("Du måste fylla i alla bank- och namnuppgifter.")
 
-# =========================================================================
-# MENY 2: ATTESTFUNKTION
-# =========================================================================
 elif sida == "✅ Attestfunktion":
     st.title("✅ Attestfunktion")
     att_namn = [a["namn"] for a in st.session_state["attestanter"]]
@@ -138,38 +126,31 @@ elif sida == "✅ Attestfunktion":
             if hist: st.dataframe(pd.DataFrame(hist)[["datum_attesterat", "namn", "lag", "kategori", "belopp"]])
             else: st.caption("Du har inte attesterat några kvitton än.")
 
-# =========================================================================
-# MENY 3: ADMINPANEL
-# =========================================================================
 elif sida == "⚙️ Adminpanel":
     st.title("⚙️ Adminpanel")
     st.write("Här administrerar du föreningens register över lag, konton och vem som attesterar.")
     st.divider()
-    
     st.subheader("Hantering av Lag & Aktiviteter")
     st.write("**Befintliga val:** " + ", ".join(st.session_state["lag"]))
     nl = st.text_input("Lägg till lag/aktivitet:", key="admin_lag")
     if st.button("Spara nytt val", key="as_lag"):
         if nl and nl not in st.session_state["lag"]: st.session_state["lag"].append(nl.strip()); spara_data(); st.rerun()
-            
     st.divider()
     st.subheader("Hantering av Bokföringskonton")
     st.write("**Befintliga konton:** " + ", ".join(st.session_state["konton"]))
     nk = st.text_input("Lägg till kontonamn:", key="admin_konto")
     if st.button("Spara nytt konto", key="as_konto"):
         if nk and nk not in st.session_state["konton"]: st.session_state["konton"].append(nk.strip()); spara_data(); st.rerun()
-            
     st.divider()
     st.subheader("Hantera Attestanter & Behörigheter")
     an = st.text_input("Namn på attestant:", key="an_namn")
     ae = st.text_input("E-post till attestant:", key="an_mail")
     al = st.multiselect("Välj lag/aktiviteter:", options=st.session_state["lag"], key="an_lag")
     if st.button("Spara attestant", key="as_att"):
-        if an and ae and al: st.session_state["attestanter"].append({"namn": an.strip(), "epost": ae.strip(), "lag": al})
-    spara_data(); st.success("Attestant sparad!"); st.rerun()
-    if st.session_state["attestanter"]: st.write("### Registrerade attestanter just nu:")
+        if an and ae and al:
+            st.session_state["attestanter"].append({"namn": an.strip(), "epost": ae.strip(), "lag": al})
+            spara_data(); st.success("Attestant sparad!"); st.rerun()
+    if st.session_state["attestanter"]:
+        st.write("### Registrerade attestanter just nu:")
         for i, att in enumerate(st.session_state["attestanter"]):
-        st.write(f"👤 {att['namn']} ({att['epost']}) - Ansvarar för: {', '.join(att['lag'])}")
-    if st.button(f"Ta bort {att['namn']}", key=f"ad_del_{i}"):
-    st.session_state["attestanter"].remove(att)
-    spara_data(); st.rerun()
+            st.write(f"👤 {att['namn']} ({att['epost']}) - Ansvarar för: {', '.join(att['lag'])}")
