@@ -159,19 +159,19 @@ elif sida == "⚙️ Adminpanel":
     if st.button("Spara nytt konto", key="as_konto"):
         if nk and nk not in st.session_state["konton"]: st.session_state["konton"].append(nk.strip()); spara_data(); st.rerun()
             
-st.divider()
-st.subheader("Hantera Attestanter & Behörigheter")
-an = st.text_input("Namn på attestant:", key="an_namn")
-ae = st.text_input("E-post till attestant:", key="an_mail")
-al = st.multiselect("Välj lag/aktiviteter:", options=st.session_state["lag"], key="an_lag")
-if st.button("Spara attestant", key="as_att"):
-if an and ae and al:
-st.session_state["attestanter"].append({"namn": an.strip(), "epost": ae.strip(), "lag": al})
-spara_data(); st.success("Attestant sparad!"); st.rerun()
-if st.session_state["attestanter"]:
-st.write("### Registrerade attestanter just nu:")
-for i, att in enumerate(st.session_state["attestanter"]):
-st.write(f"👤 {att['namn']} ({att['epost']}) - Ansvarar för: {', '.join(att['lag'])}")
-if st.button(f"Ta bort {att['namn']}", key=f"ad_del_{i}"):
-st.session_state["attestanter"].remove(att)
-spara_data(); st.rerun()
+    st.divider()
+    st.subheader("Hantera Attestanter & Behörigheter")
+    an = st.text_input("Namn på attestant:", key="an_namn")
+    ae = st.text_input("E-post till attestant:", key="an_mail")
+    al = st.multiselect("Välj lag/aktiviteter:", options=st.session_state["lag"], key="an_lag")
+    if st.button("Spara attestant", key="as_att"):
+        if an and ae and al:
+    st.session_state["attestanter"].append({"namn": an.strip(), "epost": ae.strip(), "lag": al})
+    spara_data(); st.success("Attestant sparad!"); st.rerun()
+    if st.session_state["attestanter"]:
+    st.write("### Registrerade attestanter just nu:")
+    for i, att in enumerate(st.session_state["attestanter"]):
+    st.write(f"👤 {att['namn']} ({att['epost']}) - Ansvarar för: {', '.join(att['lag'])}")
+    if st.button(f"Ta bort {att['namn']}", key=f"ad_del_{i}"):
+    st.session_state["attestanter"].remove(att)
+    spara_data(); st.rerun()
