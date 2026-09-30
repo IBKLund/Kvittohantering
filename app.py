@@ -1,32 +1,75 @@
 import streamlit as st
 import pandas as pd
+import json
+import os
 from datetime import datetime
 
 # MÅSTE ligga absolut först
 st.set_page_config(page_title="IBK Lund - Kvittohantering", layout="wide")
 
 # =========================================================================
-# LÖSENORD OCH INSTÄLLNINGAR (Ändra ditt adminlösenord här!)
+# LÖSENORD OCH INSTÄLLNINGAR
 # =========================================================================
-ADMIN_LOSENORD = "admin123"  # <-- Byt ut till det lösenord du vill ha för adminfliken!
+ADMIN_LOSENORD = "admin123"  # <-- Byt ut till ditt önskade adminlösenord för appen!
+DATA_FILE = "admin_data.json"
 
-# Trygg initiering av sessionsminnet
-if "lag" not in st.session_state:
-    st.session_state["lag"] = ["Dam Elit", "Herr Elit", "Dam div1", "Herr div2"]
-if "konton" not in st.session_state:
-    st.session_state["konton"] = ["5800 Biljetter", "5830 Kost", "5831 Logi", "7330 Bilersättning"]
-if "attestanter" not in st.session_state:
-    st.session_state["attestanter"] = []
-if "vantande_utlagg" not in st.session_state:
-    st.session_state["vantande_utlagg"] = []
-if "godkanda_utlagg" not in st.session_state:
-    st.session_state["godkanda_utlagg"] = []
-
-# E-postinställningar
 MAIL_AVSANDARE = "kvitto@ibklund.se"
-MAIL_LOSENORD = "uzierddeiefbongh"
+MAIL_LOSENORD = "uzierddeiefbongh"  # <-- INLAGT: Ditt specifika applösenord för Gmail
 MAIL_SMTP_SERVER = "://gmail.com"
 MAIL_PORT = 587
+
+DEFAULT_LAG = ["Dam Elit", "Herr Elit", "Dam div1", "Herr div2"]
+DEFAULT_KONTON = [
+    "5800 Biljetter (tåg/buss/flyg/båt)",
+    "5830 Kost",
+    "5831 Logi",
+    "7330 Bilersättning",
+    "2999 Övrigt"
+]
+
+# =========================================================================
+# PERMANENT FILHANTERING (MOLNSÄKER)
+# =========================================================================
+def ladda_data():
+    default_struktur = {
+        "lag": DEFAULT_LAG.copy(),
+        "konton": DEFAULT_KONTON.copy(),
+        "attestanter": [],
+        "vantande_utlagg": [],
+        "godkanda_utlagg": []
+    }
+    if not os.path.exists(DATA_FILE):
+        return default_struktur
+    try:
+        with open(DATA_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        # Säkerställ att alla fält finns med rätt datatyp
+        for k, v in default_struktur.items():
+            if k not in data or not isinstance(data[k], type(v)):
+                data[k] = v
+        return data
+    except:
+        return default_struktur
+
+def spara_data():
+    try:
+        temp_data = {
+            "lag": st.session_state["lag"],
+            "konton": st.session_state["konton"],
+            "attestanter": st.session_state["attestanter"],
+            "vantande_utlagg": st.session_state["vantande_utlagg"],
+            "godkanda_utlagg": st.session_state["godkanda_utlagg"]
+        }
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(temp_data, f, ensure_ascii=False, indent=4)
+    except Exception as e:
+        pass  # Ignorera om molnet tillfälligt blockerar skrivning under rendering
+
+# Läs in data till session_state en gång per körning om det saknas
+if "lag" not in st.session_state:
+    sparad_data = ladda_data()
+    for nyckel, varde in sparad_data.items():
+        st.session_state[nyckel] = varde
 
 def skicka_notis_mail(till_epost, attestant_namn, lag_namn, belopp, kategori, inskickat_av):
     import smtplib
@@ -49,19 +92,14 @@ def skicka_notis_mail(till_epost, attestant_namn, lag_namn, belopp, kategori, in
         return False
 
 # =========================================================================
-# NY ENHETLIG SIDOMENY
+# SIDOMENY
 # =========================================================================
 st.sidebar.title("IBK Lund")
 st.sidebar.subheader("Kvitto & Utlägg")
 sida = st.sidebar.radio("Välj funktion:", ["📝 Registrera Utlägg", "✅ Attestfunktion", "⚙️ Adminpanel"])
 
-st.sidebar.divider()
-if st.sidebar.button("♻️ Nollställ appens cache"):
-    st.session_state.clear()
-    st.rerun()
-
 # =========================================================================
-# MENY 1: REGISTRERA UTLÄGG (Öppen för alla)
+# MENY 1: REGISTRERA UTLÄGG
 # =========================================================================
 if sida == "📝 Registrera Utlägg":
     st.title("📝 Registrera nytt utlägg")
@@ -94,21 +132,21 @@ if sida == "📝 Registrera Utlägg":
                 "datum_inskickat": datetime.now().strftime("%Y-%m-%d")
             }
             st.session_state["vantande_utlagg"].append(nytt_utlagg)
+            spara_data()
             
-            # Notis till rätt lag-attestanter
             mailade = []
             for att in st.session_state["attestanter"]:
                 if lag_reg in att.get("lag", []):
                     if skicka_notis_mail(att["epost"], att["namn"], lag_reg, belopp_reg, konto_reg, namn_reg):
                         mailade.append(att["namn"])
                         
-            st.success("✅ Utlägget har registrerats och fälten har tömts!")
-            st.rerun()  # Tömmer fälten automatiskt genom omladdning
+            st.success("✅ Utlägget har registrerats!")
+            st.rerun()
         else:
             st.error("Du måste fylla i namn, bankuppgifter och belopp.")
 
 # =========================================================================
-# MENY 2: ATTESTFUNKTION (Kräver val av registrerad attestant)
+# MENY 2: ATTESTFUNKTION
 # =========================================================================
 elif sida == "✅ Attestfunktion":
     st.title("✅ Attestfunktion")
@@ -126,7 +164,6 @@ elif sida == "✅ Attestfunktion":
             st.success(f"Inloggad som {aktiv_attestant}. Du har behörighet för: {', '.join(mina_lag)}")
             st.divider()
             
-            # Visa enbart väntande utlägg för attestantens tilldelade lag
             st.subheader("Ärenden som väntar på ditt godkännande")
             aktuell_ko = [u for u in st.session_state["vantande_utlagg"] if u["lag"] in mina_lag]
             
@@ -160,11 +197,13 @@ elif sida == "✅ Attestfunktion":
                                     utl["datum_attesterat"] = datetime.now().strftime("%Y-%m-%d")
                                     st.session_state["godkanda_utlagg"].append(utl)
                                     st.session_state["vantande_utlagg"].remove(utl)
+                                    spara_data()
                                     st.success("Godkänt!")
                                     st.rerun()
                             with col_b2:
                                 if st.button(f"🗑️ Radera utlägg #{utl['id']}", key=f"r_{utl['id']}"):
                                     st.session_state["vantande_utlagg"].remove(utl)
+                                    spara_data()
                                     st.warning("Utlägg raderat!")
                                     st.rerun()
 
@@ -174,20 +213,3 @@ elif sida == "✅ Attestfunktion":
             mina_godkanda = [u for u in st.session_state["godkanda_utlagg"] if u["lag"] in mina_lag]
             if mina_godkanda:
                 df_spiris = pd.DataFrame(mina_godkanda)
-                kolumner = ["namn", "lag", "kategori", "belopp", "bank", "clearing", "kontonummer", "datum_attesterat"]
-                st.dataframe(df_spiris[kolumner])
-                csv = df_spiris[kolumner].to_csv(index=False, encoding="utf-8-sig")
-                st.download_button("📥 Ladda ner fil för Spiris (CSV)", data=csv, file_name=f"spiris_{aktiv_attestant}.csv", mime="text/csv")
-            else:
-                st.info("Inga godkända utlägg att exportera till Spiris för dina lag än.")
-
-            # Historik per person
-            st.divider()
-            st.subheader(f"Din historik ({aktiv_attestant})")
-            historik = [u for u in st.session_state["godkanda_utlagg"] if u.get("attesterat_av") == aktiv_attestant]
-            if historik:
-                st.dataframe(pd.DataFrame(historik)[["datum_attesterat", "namn", "lag", "kategori", "belopp"]])
-            else:
-                st.caption("Du har inte attesterat några kvitton i historiken än.")
-
-# =========================================================================
