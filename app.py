@@ -126,31 +126,73 @@ elif sida == "✅ Attestfunktion":
             if hist: st.dataframe(pd.DataFrame(hist)[["datum_attesterat", "namn", "lag", "kategori", "belopp"]])
             else: st.caption("Du har inte attesterat några kvitton än.")
 
+# =========================================================================
+# MENY 3: ADMINPANEL
+# =========================================================================
 elif sida == "⚙️ Adminpanel":
     st.title("⚙️ Adminpanel")
     st.write("Här administrerar du föreningens register över lag, konton och vem som attesterar.")
     st.divider()
+    
     st.subheader("Hantering av Lag & Aktiviteter")
     st.write("**Befintliga val:** " + ", ".join(st.session_state["lag"]))
     nl = st.text_input("Lägg till lag/aktivitet:", key="admin_lag")
     if st.button("Spara nytt val", key="as_lag"):
-        if nl and nl not in st.session_state["lag"]: st.session_state["lag"].append(nl.strip()); spara_data(); st.rerun()
+        if nl and nl not in st.session_state["lag"]: 
+            st.session_state["lag"].append(nl.strip())
+            spara_data()
+            st.rerun()
+            
     st.divider()
     st.subheader("Hantering av Bokföringskonton")
     st.write("**Befintliga konton:** " + ", ".join(st.session_state["konton"]))
     nk = st.text_input("Lägg till kontonamn:", key="admin_konto")
     if st.button("Spara nytt konto", key="as_konto"):
-        if nk and nk not in st.session_state["konton"]: st.session_state["konton"].append(nk.strip()); spara_data(); st.rerun()
+        if nk and nk not in st.session_state["konton"]: 
+            st.session_state["konton"].append(nk.strip())
+            spara_data()
+            st.rerun()
+            
     st.divider()
     st.subheader("Hantera Attestanter & Behörigheter")
+    
+    # Skapa unika nycklar för att kunna läsa in data vid redigering
     an = st.text_input("Namn på attestant:", key="an_namn")
     ae = st.text_input("E-post till attestant:", key="an_mail")
     al = st.multiselect("Välj lag/aktiviteter:", options=st.session_state["lag"], key="an_lag")
-    if st.button("Spara attestant", key="as_att"):
+    
+    if st.button("Spara / Uppdatera attestant", key="as_att"):
         if an and ae and al:
+            # Ta bort gamla versionen om namnet redan fanns (för att uppdatera)
+            st.session_state["attestanter"] = [a for a in st.session_state["attestanter"] if a["namn"].lower() != an.strip().lower()]
             st.session_state["attestanter"].append({"namn": an.strip(), "epost": ae.strip(), "lag": al})
-            spara_data(); st.success("Attestant sparad!"); st.rerun()
+            spara_data()
+            st.success("Attestant sparad!")
+            st.rerun()
+            
     if st.session_state["attestanter"]:
+        st.write("---")
         st.write("### Registrerade attestanter just nu:")
         for i, att in enumerate(st.session_state["attestanter"]):
-            st.write(f"👤 {att['namn']} ({att['epost']}) - Ansvarar för: {', '.join(att['lag'])}")
+            col_text, col_edit, col_del = st.columns([3, 1, 1])
+            
+            with col_text:
+                st.write(f"👤 **{att['namn']}** ({att['epost']}) - Ansvarar för: {', '.join(att['lag'])}")
+            
+            # Redigera-knapp: Fyller i fälten ovanför med denna persons info
+            with col_edit:
+                if st.button("✏️ Ändra", key=f"edit_btn_{i}_{att['namn'].replace(' ', '_')}"):
+                    st.info(f"Ändrar {att['namn']}. Justera uppgifterna i fälten ovanför och klicka på Spara.")
+                    # Vi sätter värdena i session_state så de dyker upp i textrutorna direkt
+                    st.session_state["an_namn"] = att["namn"]
+                    st.session_state["an_mail"] = att['epost']
+                    st.session_state["an_lag"] = att['lag']
+                    st.rerun()
+                    
+            # Ta bort-knapp: Raderar personen helt från listan
+            with col_del:
+                if st.button("🗑️ Ta bort", key=f"del_btn_{i}_{att['namn'].replace(' ', '_')}"):
+                    st.session_state["attestanter"] = [a for a in st.session_state["attestanter"] if a["namn"] != att["namn"]]
+                    spara_data()
+                    st.warning(f"{att['namn']} borttagen.")
+                    st.rerun()
