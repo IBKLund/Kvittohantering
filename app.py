@@ -18,7 +18,7 @@ MAIL_LOSENORD = "uzierddeiefbongh"
 MAIL_SMTP_SERVER = "://gmail.com"
 MAIL_PORT = 587
 
-# UTÖKAD: Inkluderar nu både lag och era två fasta aktiviteter
+# Inkluderar både lag och era två fasta aktiviteter
 DEFAULT_LAG = ["Dam Elit", "Herr Elit", "Dam div1", "Herr div2", "LundaLägret", "NovaOpen"]
 
 DEFAULT_KONTON = [
@@ -29,7 +29,7 @@ DEFAULT_KONTON = [
     "2999 Övrigt"
 ]
 
-# INLAGDA STANDARDATTESTANTER: Ligger som grund om databasen är tom
+# Standardattestanter som ligger som grund om databasen är tom
 DEFAULT_ATTESTANTER = [
     {"namn": "Christer Sölve", "epost": "christer@solve.se", "lag": ["Herr Elit"]},
     {"namn": "Magnus Berglund", "epost": "magnus.berglund@ibklund.se", "lag": ["LundaLägret", "NovaOpen"]}
@@ -42,7 +42,7 @@ def ladda_data():
     default_struktur = {
         "lag": DEFAULT_LAG.copy(),
         "konton": DEFAULT_KONTON.copy(),
-        "attestanter": DEFAULT_ATTESTANTER.copy(), # Lägger in Christer och Magnus som standard
+        "attestanter": DEFAULT_ATTESTANTER.copy(),
         "vantande_utlagg": [],
         "godkanda_utlagg": []
     }
@@ -56,7 +56,6 @@ def ladda_data():
             if k not in data or not isinstance(data[k], type(v)):
                 data[k] = v
         
-        # Om attestantlistan har blivit helt tom av en nollställning, lägg tillbaka standarden
         if not data["attestanter"]:
             data["attestanter"] = DEFAULT_ATTESTANTER.copy()
             
@@ -119,7 +118,7 @@ if sida == "📝 Registrera Utlägg":
     st.info("ℹ️ Utbetalning sker runt den 25:e varje månad. Kvitton efter den 10:e utbetalas nästa månad.")
     
     namn_reg = st.text_input("Ditt Namn:")
-    lag_reg = st.selectbox("Välj lag / aktivitet:", options=st.session_state["lag"]) # Ändrad rubrik text
+    lag_reg = st.selectbox("Välj lag / aktivitet:", options=st.session_state["lag"])
     konto_reg = st.selectbox("Välj konto:", options=st.session_state["konton"])
     belopp_reg = st.number_input("Belopp (kr):", min_value=0.0, step=1.0)
     
@@ -214,3 +213,5 @@ elif sida == "✅ Attestfunktion":
                                     st.success("Godkänt!")
                                     st.rerun()
                             with col_b2:
+                                if st.button(f"🗑️ Radera utlägg #{utl['id']}", key=f"r_{utl['id']}"):
+                                    st.session_state["vantande_utlagg"].remove(utl)
