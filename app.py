@@ -1,24 +1,71 @@
-import json
-import os
+import base64
+import hashlib
+import hmac
+import re
+import secrets
 from datetime import datetime
 from pathlib import Path
+from html import escape
 
 import pandas as pd
+import requests
 import resend
 import streamlit as st
 
 st.set_page_config(page_title="IBK Lund", layout="wide")
+APP_DIR = Path(__file__).parent
+LOGO_CANDIDATES = [
+    APP_DIR / "ibk-lund-logo.png",
+    APP_DIR / "02-logga-ibk-lund-webb.png",
+    APP_DIR / "assets" / "ibk-lund-logo.png",
+    APP_DIR / "assets" / "02-logga-ibk-lund-webb.png",
+]
+LOGO_PATH = next((path for path in LOGO_CANDIDATES if path.is_file()), LOGO_CANDIDATES[0])
 
-DATA_FILE = "admin_data.json"
-UPLOAD_DIR = Path("uploads")
-UPLOAD_DIR.mkdir(exist_ok=True)
+st.markdown(
+    """
+    <style>
+    :root {
+        --ibk-navy: #171717;
+        --ibk-blue: #c3d600;
+        --ibk-pale: #f5f7df;
+        --ibk-ink: #171717;
+    }
+    [data-testid="stSidebar"] {
+        background: var(--ibk-navy);
+    }
+    [data-testid="stSidebar"] * {
+        color: #ffffff;
+    }
+    [data-testid="stSidebar"] [data-testid="stRadio"] label {
+        border-radius: 0.5rem;
+        padding: 0.25rem 0.4rem;
+    }
+    h1, h2, h3 {
+        color: var(--ibk-navy);
+    }
+    [data-testid="stAlert"] {
+        border-radius: 0.6rem;
+    }
+    .stButton > button[kind="primary"],
+    .stFormSubmitButton > button[kind="primary"] {
+        background: var(--ibk-navy);
+        border-color: var(--ibk-navy);
+        color: #ffffff;
+    }
+    .stButton > button[kind="primary"]:hover,
+    .stFormSubmitButton > button[kind="primary"]:hover {
+        background: var(--ibk-blue);
+        border-color: var(--ibk-blue);
+        color: #171717;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 DEFAULT_LAG = ["Dam Elit", "Herr Elit", "Dam div1", "Herr div2", "LundaLägret", "NovaOpen"]
 DEFAULT_KONTON = ["5800 Biljetter", "5830 Kost", "5831 Logi", "7330 Bilersättning", "2999 Övrigt"]
-DEFAULT_ATTESTANTER = [
-    {"namn": "Christer Sölve", "epost": "christer@solve.se", "lag": ["Herr Elit"]},
-    {"namn": "Magnus Berglund", "epost": "magnus.berglund@ibklund.se", "lag": ["LundaLägret", "NovaOpen"]},
-]
 
 
 def get_app_base_url():
@@ -43,26 +90,40 @@ def read_secrets_users():
 
 
 def get_app_users():
-    users = read_secrets_users()
-    if not users:
-        users = [
-            {
-                "username": "christer",
-                "password": "ibk123",
-                "name": "Christer Sölve",
-                "email": "christer@solve.se",
-                "role": "admin",
-                "lag": ["Herr Elit"],
-            },
-            {
-                "username": "magnus",
-                "password": "ibk123",
-                "name": "Magnus Berglund",
-                "email": "magnus.berglund@ibklund.se",
-                "role": "attestant",
-                "lag": ["LundaLägret", "NovaOpen"],
-            },
-        ]
+    return st.session_state.get("anvandare", read_secrets_users())
+
+
+def hash_password(password, salt=None):
+    salt = salt or secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 310_000)
+    return salt, digest.hex()
+
+
+def password_matches(user, password):
+    if "password_hash" in user and "password_salt" in user:
+        _, candidate = hash_password(password, user["password_salt"])
+        return hmac.compare_digest(candidate, user["password_hash"])
+    return hmac.compare_digest(str(user.get("password", "")), password)
+
+
+def secret_users_for_storage():
+    users = []
+    for user in read_secrets_users():
+        role = str(user.get("role", "")).strip().lower()
+        username = str(user.get("username", "")).strip()
+        password = str(user.get("password", ""))
+        if not username or not password or role not in {"admin", "attestant"}:
+            continue
+        salt, digest = hash_password(password)
+        users.append({
+            "username": username,
+            "name": str(user.get("name", username)).strip(),
+            "email": str(user.get("email", "")).strip(),
+            "role": role,
+            "lag": user.get("lag", []) if role == "attestant" else [],
+            "password_salt": salt,
+            "password_hash": digest,
+        })
     return users
 
 
@@ -74,58 +135,116 @@ def authenticate_user(username, password):
 
     for user in get_app_users():
         if str(user.get("username", "")).strip().lower() == username.lower():
-            if str(user.get("password", "")) == password:
+            role = str(user.get("role", "")).strip().lower()
+            if password_matches(user, password) and role in {"admin", "attestant"}:
                 return {
                     "username": user.get("username", username),
                     "name": user.get("name", user.get("username", username)),
                     "email": user.get("email", ""),
-                    "role": user.get("role", "attestant"),
-                    "lag": user.get("lag", []),
+                    "role": role,
+                    "lag": user.get("lag", []) if role == "attestant" else [],
                 }
     return None
+
+
+def apps_script_request(action, **values):
+    missing = [key for key in ["APPS_SCRIPT_URL", "APPS_SCRIPT_TOKEN"] if key not in st.secrets]
+    if missing:
+        raise RuntimeError(f"Saknar Streamlit Secrets: {', '.join(missing)}.")
+    response = requests.post(
+        st.secrets["APPS_SCRIPT_URL"],
+        json={"token": st.secrets["APPS_SCRIPT_TOKEN"], "action": action, **values},
+        timeout=120,
+    )
+    response.raise_for_status()
+    try:
+        result = response.json()
+    except ValueError as error:
+        raise RuntimeError("Google Apps Script returnerade inte giltig JSON.") from error
+    if not result.get("ok"):
+        raise RuntimeError(result.get("error", "Google Apps Script misslyckades utan felbeskrivning."))
+    return result
 
 
 def load_data():
     default = {
         "lag": DEFAULT_LAG.copy(),
         "konton": DEFAULT_KONTON.copy(),
-        "attestanter": DEFAULT_ATTESTANTER.copy(),
         "vantande_utlagg": [],
         "godkanda_utlagg": [],
     }
-    if not os.path.exists(DATA_FILE):
-        return default
-
-    try:
-        with open(DATA_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        for key, value in default.items():
-            if key not in data or not isinstance(data[key], type(value)):
-                data[key] = value
-        if not data["attestanter"]:
-            data["attestanter"] = DEFAULT_ATTESTANTER.copy()
+    stored = apps_script_request("loadData").get("data", {})
+    if not stored:
+        data = {**default, "anvandare": secret_users_for_storage()}
+        save_data(data)
         return data
-    except Exception:
-        return default
+    data = {}
+    for key, value in default.items():
+        stored_value = stored.get(key)
+        data[key] = stored_value if isinstance(stored_value, type(value)) else value
+    if "anvandare" not in stored:
+        data["anvandare"] = secret_users_for_storage()
+        save_data(data)
+    elif isinstance(stored["anvandare"], list):
+        data["anvandare"] = stored["anvandare"]
+        if not data["anvandare"]:
+            data["anvandare"] = secret_users_for_storage()
+        if "attestanter" in stored:
+            save_data(data)
+        elif not stored["anvandare"]:
+            save_data(data)
+    else:
+        raise RuntimeError("Användarlistan i Google Sheets har fel format.")
+    return data
 
 
-def save_data():
-    try:
-        payload = {
-            "lag": st.session_state.get("lag", []),
-            "konton": st.session_state.get("konton", []),
-            "attestanter": st.session_state.get("attestanter", []),
-            "vantande_utlagg": st.session_state.get("vantande_utlagg", []),
-            "godkanda_utlagg": st.session_state.get("godkanda_utlagg", []),
+def save_data(data=None):
+    if data is None:
+        data = {
+            key: st.session_state.get(key, [])
+            for key in ["lag", "konton", "vantande_utlagg", "godkanda_utlagg", "anvandare"]
         }
-        with open(DATA_FILE, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=4)
-    except Exception:
-        pass
+    apps_script_request("saveData", data=data)
 
 
-for key, value in load_data().items():
-    st.session_state.setdefault(key, value)
+def upload_receipt(uploaded_file, expense_id):
+    safe_name = Path(uploaded_file.name).name.replace("/", "_").replace("\\", "_")
+    return upload_receipt_content(
+        uploaded_file.getvalue(),
+        safe_name,
+        uploaded_file.type or "application/octet-stream",
+        expense_id,
+    )
+
+
+def upload_receipt_content(content, original_name, mime_type, expense_id):
+    safe_name = Path(original_name).name.replace("/", "_").replace("\\", "_")
+    filename = f"utlagg_{expense_id}_{safe_name}"
+    result = apps_script_request(
+        "uploadReceipt",
+        filename=filename,
+        mimeType=mime_type,
+        content=base64.b64encode(content).decode("ascii"),
+    )
+    return result["fileId"], result["filename"]
+
+
+def download_drive_file(file_id):
+    result = apps_script_request("downloadReceipt", fileId=file_id)
+    return base64.b64decode(result["content"])
+
+
+def delete_drive_file(file_id):
+    apps_script_request("deleteReceipt", fileId=file_id)
+
+
+try:
+    saved_data = load_data()
+except Exception as error:
+    st.error(f"Kunde inte läsa eller initiera Google Apps Script-lagringen. Kontrollera URL, token och Apps Script-egenskaper: {error}")
+    st.stop()
+for key, value in saved_data.items():
+    st.session_state[key] = value
 
 for key in [
     "minne_namn",
@@ -133,38 +252,86 @@ for key in [
     "minne_clearing",
     "minne_konto",
     "bekraftelse_meddelande",
-    "an_namn",
-    "an_mail",
-    "an_lag",
+    "mail_fel",
     "auth_user",
+    "auth_username",
     "auth_role",
+    "auth_lag",
 ]:
     if key not in st.session_state:
-        st.session_state[key] = "" if key != "an_lag" else []
+        if key in {"auth_lag", "mail_fel"}:
+            st.session_state[key] = []
+        else:
+            st.session_state[key] = ""
 
 
-def send_notification_email(till, namn, lag, belopp, kat, av):
+def refresh_authenticated_user():
+    username = st.session_state.get("auth_username")
+    if not username:
+        st.session_state.pop("auth_user", None)
+        st.session_state.pop("auth_role", None)
+        st.session_state.pop("auth_lag", None)
+        return
+
+    configured_user = next(
+        (
+            user for user in get_app_users()
+            if str(user.get("username", "")).strip().lower() == str(username).strip().lower()
+        ),
+        None,
+    )
+    if not configured_user:
+        for key in ["auth_user", "auth_username", "auth_role", "auth_lag", "auth_email"]:
+            st.session_state.pop(key, None)
+        return
+
+    role = str(configured_user.get("role", "")).strip().lower()
+    if role not in {"admin", "attestant"}:
+        for key in ["auth_user", "auth_username", "auth_role", "auth_lag", "auth_email"]:
+            st.session_state.pop(key, None)
+        return
+
+    st.session_state["auth_user"] = configured_user.get("name", configured_user.get("username"))
+    st.session_state["auth_role"] = role
+    st.session_state["auth_lag"] = configured_user.get("lag", []) if role == "attestant" else []
+    st.session_state["auth_email"] = configured_user.get("email", "")
+
+
+refresh_authenticated_user()
+
+
+def send_notification_email(till, namn, lag, belopp, kat, av, expense_id):
+    if "RESEND_API_KEY" not in st.secrets:
+        return False, "RESEND_API_KEY saknas i Streamlit Secrets."
+    if "MAIL_FROM" not in st.secrets:
+        return False, "MAIL_FROM saknas i Streamlit Secrets."
+    if not LOGO_PATH.is_file():
+        return False, f"Logotypen saknas: {LOGO_PATH.name}. Lägg den bredvid app.py i GitHub."
+
     app_url = get_app_base_url()
     msg_html = f"""
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">
-        <div style="background-color:#003366; padding:20px; text-align:center; color:white;">
-            <h2 style="margin:0; font-size:22px;">IBK Lund</h2>
-            <p style="margin:5px 0 0; opacity:0.8;">Kvitto- & Utläggshantering</p>
+        <div style="background-color:#171717; border-bottom:6px solid #c3d600; padding:20px; text-align:center; color:white;">
+            <img src="cid:ibk-lund-logo" alt="IBK Lund" width="72" style="display:block;margin:0 auto 10px;background:#fff;border-radius:6px;padding:4px;">
+            <h2 style="margin:0; font-size:22px; color:#ffffff;">IBK Lund</h2>
+            <p style="margin:5px 0 0; opacity:0.9;">Kvitto- & Utläggshantering</p>
         </div>
         <div style="padding:24px; line-height:1.6; color:#333;">
-            <p style="font-size:16px; margin-top:0;">Hej <b>{namn}</b>,</p>
-            <p>Ett nytt utlägg har registrerats och väntar på ditt godkännande.</p>
-            <div style="background-color:#f9f9f9; border-left:4px solid #003366; padding:15px; margin:20px 0; border-radius:4px;">
+            <p style="font-size:16px; margin-top:0;">Hej <b>{escape(namn)}</b>,</p>
+            <p>Ett nytt utlägg väntar på ditt godkännande.</p>
+            <div style="background-color:#f7f8ec; border-left:4px solid #c3d600; padding:15px; margin:20px 0; border-radius:4px;">
                 <table style="width:100%; border-collapse:collapse;">
-                    <tr><td style="padding:5px 0; color:#666; width:120px;"><b>Inskickat av:</b></td><td>{av}</td></tr>
-                    <tr><td style="padding:5px 0; color:#666;"><b>Lag/Aktivitet:</b></td><td>{lag}</td></tr>
-                    <tr><td style="padding:5px 0; color:#666;"><b>Kategori:</b></td><td>{kat}</td></tr>
-                    <tr><td style="padding:5px 0; color:#666;"><b>Belopp:</b></td><td style="font-size:16px; color:#003366;"><b>{belopp} kr</b></td></tr>
+                    <tr><td style="padding:5px 0; color:#666; width:120px;"><b>Utläggs-ID:</b></td><td>#{expense_id}</td></tr>
+                    <tr><td style="padding:5px 0; color:#666; width:120px;"><b>Inskickat av:</b></td><td>{escape(av)}</td></tr>
+                    <tr><td style="padding:5px 0; color:#666;"><b>Lag/Aktivitet:</b></td><td>{escape(lag)}</td></tr>
+                    <tr><td style="padding:5px 0; color:#666;"><b>Kategori:</b></td><td>{escape(kat)}</td></tr>
+                    <tr><td style="padding:5px 0; color:#666;"><b>Belopp:</b></td><td style="font-size:16px; color:#171717;"><b>{belopp} kr</b></td></tr>
+                    <tr><td style="padding:5px 0; color:#666;"><b>Inskickad:</b></td><td>{datetime.now().strftime('%Y-%m-%d')}</td></tr>
                 </table>
             </div>
             <p>Vänligen logga in i appen för att granska underlaget, korrigera eventuella uppgifter och attestera utlägget.</p>
             <div style="text-align:center; margin:30px 0;">
-                <a href="{app_url}" style="background-color:#003366; color:white; padding:12px 30px; text-decoration:none; font-weight:bold; border-radius:5px; display:inline-block;">Gå till appen</a>
+                <a href="{app_url}" style="background-color:#c3d600; color:#171717; padding:12px 30px; text-decoration:none; font-weight:bold; border-radius:5px; display:inline-block;">Gå till appen</a>
             </div>
         </div>
         <div style="background-color:#f4f4f4; padding:15px; text-align:center; font-size:12px; color:#888; border-top:1px solid #ddd;">
@@ -176,17 +343,27 @@ def send_notification_email(till, namn, lag, belopp, kat, av):
     try:
         resend.Emails.send(
             {
-                "from": "IBK Lund Kvittohantering <onboarding@resend.dev>",
+                "from": st.secrets["MAIL_FROM"],
                 "to": till,
-                "subject": f"🔔 Nytt utlägg att attestera - {lag}",
+                "subject": f"🔔 Utlägg #{expense_id} att attestera - {lag}",
                 "html": msg_html,
+                "attachments": [
+                    {
+                        "filename": LOGO_PATH.name,
+                        "content": base64.b64encode(LOGO_PATH.read_bytes()).decode("ascii"),
+                        "content_type": "image/png",
+                        "content_id": "ibk-lund-logo",
+                    }
+                ],
             }
         )
-        return True
-    except Exception:
-        return False
+        return True, ""
+    except Exception as error:
+        return False, str(error)
 
 
+if LOGO_PATH.is_file():
+    st.sidebar.image(str(LOGO_PATH), width=110)
 st.sidebar.title("IBK Lund")
 page = st.sidebar.radio("Välj funktion:", ["📝 Registrera Utlägg", "✅ Attestfunktion", "⚙️ Adminpanel"])
 
@@ -218,6 +395,9 @@ if page == "📝 Registrera Utlägg":
     if st.session_state.get("bekraftelse_meddelande"):
         st.success(st.session_state["bekraftelse_meddelande"])
         st.session_state["bekraftelse_meddelande"] = ""
+    if st.session_state.get("mail_fel"):
+        st.warning("Utlägget sparades, men e-postnotisen kunde inte skickas: " + "; ".join(st.session_state["mail_fel"]))
+        st.session_state["mail_fel"] = []
 
     with st.form("huvud_reg_form", clear_on_submit=True):
         namn_reg = st.text_input("Ditt Namn:", value=st.session_state["minne_namn"])
@@ -232,51 +412,82 @@ if page == "📝 Registrera Utlägg":
         fil_reg = st.file_uploader("Ladda upp kvitto", type=["pdf", "png", "jpg", "jpeg"])
 
         if st.form_submit_button("Skicka in utlägg", type="primary"):
-            if not (namn_reg and bank_reg and clearing_reg and konto_nr_reg):
+            if not (namn_reg.strip() and bank_reg.strip() and clearing_reg.strip() and konto_nr_reg.strip()):
                 st.error("Fyll i alla namn- och bankuppgifter.")
+            elif fil_reg is None:
+                st.error("Du måste bifoga ett kvitto för att skicka in utlägget.")
+            elif fil_reg.size > 10 * 1024 * 1024:
+                st.error("Kvittofilen får vara högst 10 MB.")
+            elif belopp_reg <= 0:
+                st.error("Beloppet måste vara större än 0 kr.")
             else:
                 st.session_state["minne_namn"] = namn_reg.strip()
                 st.session_state["minne_bank"] = bank_reg.strip()
                 st.session_state["minne_clearing"] = clearing_reg.strip()
                 st.session_state["minne_konto"] = konto_nr_reg.strip()
 
-                file_name = "Inget underlag"
-                if fil_reg is not None:
-                    file_name = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{fil_reg.name}"
-                    target = UPLOAD_DIR / file_name
-                    target.write_bytes(fil_reg.getvalue())
-
-                utl = {
-                    "id": len(st.session_state["vantande_utlagg"]) + len(st.session_state["godkanda_utlagg"]) + 1,
-                    "namn": namn_reg.strip(),
-                    "lag": lag_reg,
-                    "kategori": konto_reg,
-                    "belopp": float(belopp_reg),
-                    "bank": bank_reg.strip(),
-                    "clearing": clearing_reg.strip(),
-                    "kontonummer": konto_nr_reg.strip(),
-                    "filnamn": file_name,
-                    "datum_inskickat": datetime.now().strftime("%Y-%m-%d"),
-                }
-
-                st.session_state["vantande_utlagg"].append(utl)
-                save_data()
-
-                att_namn = []
-                for att in st.session_state["attestanter"]:
-                    if lag_reg in att.get("lag", []):
-                        att_namn.append(att["namn"])
-                        send_notification_email(att["epost"], att["namn"], lag_reg, belopp_reg, konto_reg, namn_reg.strip())
-
-                if att_namn:
-                    st.session_state["bekraftelse_meddelande"] = f"✅ Registrerat! Väntar på attest av {' & '.join(att_namn)}."
+                all_expenses = st.session_state["vantande_utlagg"] + st.session_state["godkanda_utlagg"]
+                expense_id = max((int(item["id"]) for item in all_expenses), default=0) + 1
+                try:
+                    file_id, file_name = upload_receipt(fil_reg, expense_id)
+                    utl = {
+                        "id": expense_id,
+                        "namn": namn_reg.strip(),
+                        "lag": lag_reg,
+                        "kategori": konto_reg,
+                        "belopp": float(belopp_reg),
+                        "bank": bank_reg.strip(),
+                        "clearing": clearing_reg.strip(),
+                        "kontonummer": konto_nr_reg.strip(),
+                        "filnamn": file_name,
+                        "drive_file_id": file_id,
+                        "datum_inskickat": datetime.now().strftime("%Y-%m-%d"),
+                    }
+                    st.session_state["vantande_utlagg"].append(utl)
+                    try:
+                        save_data()
+                    except Exception:
+                        st.session_state["vantande_utlagg"].remove(utl)
+                        delete_drive_file(file_id)
+                        raise
+                except Exception as error:
+                    st.error(f"Utlägget kunde inte sparas. Kontrollera Apps Script och Google Sheets/Drive: {error}")
                 else:
-                    st.session_state["bekraftelse_meddelande"] = "✅ Registrerat! (Ingen attestant kopplad)."
-                st.rerun()
+                    attestants = [
+                        user for user in get_app_users()
+                        if str(user.get("role", "")).strip().lower() == "attestant"
+                        and lag_reg in user.get("lag", [])
+                    ]
+                    att_namn = []
+                    mail_fel = []
+                    for att in attestants:
+                        att_name = str(att.get("name", att.get("username", ""))).strip()
+                        att_email = str(att.get("email", "")).strip()
+                        if att_name:
+                            att_namn.append(att_name)
+                            if not att_email:
+                                mail_fel.append(f"{att_name}: e-postadress saknas i användarinställningarna.")
+                                continue
+                            sent, mail_error = send_notification_email(
+                                att_email, att_name, lag_reg, belopp_reg, konto_reg, namn_reg.strip(), expense_id
+                            )
+                            if not sent:
+                                mail_fel.append(f"{att_name}: {mail_error}")
+
+                    st.session_state["mail_fel"] = mail_fel
+                    if att_namn:
+                        st.session_state["bekraftelse_meddelande"] = f"✅ Registrerat! Väntar på attest av {' & '.join(att_namn)}."
+                    else:
+                        st.session_state["bekraftelse_meddelande"] = "✅ Registrerat! (Ingen attestant kopplad)."
+                    st.rerun()
 
 elif page == "✅ Attestfunktion":
     if "auth_user" not in st.session_state or not st.session_state.get("auth_user"):
         render_login_panel()
+
+    if st.session_state.get("auth_role") != "attestant":
+        st.warning("🔒 Attestering kräver en separat användare med rollen attestant.")
+        st.stop()
 
     current_user = st.session_state.get("auth_user")
     access_lag = st.session_state.get("auth_lag", [])
@@ -293,7 +504,27 @@ elif page == "✅ Attestfunktion":
             continue
 
         with st.container(border=True):
-            st.write(f"**Från:** {u['namn']} | **Lag:** {u['lag']} | **Bank:** {u['bank']} {u['clearing']}-{u['kontonummer']}")
+            st.write(
+                f"**Utlägg #{u['id']}** — inskickat {u.get('datum_inskickat', 'okänt datum')}  \n"
+                f"**Från:** {u['namn']} | **Lag/aktivitet:** {u['lag']} | "
+                f"**Belopp:** {u['belopp']} kr | **Konto:** {u['kategori']}"
+            )
+            with st.expander("Visa bankuppgifter"):
+                st.write(f"{u['bank']} {u['clearing']}-{u['kontonummer']}")
+            try:
+                receipt_bytes = download_drive_file(u["drive_file_id"])
+                st.download_button(
+                    "Hämta kvitto för granskning",
+                    data=receipt_bytes,
+                    file_name=u["filnamn"],
+                    mime="application/pdf" if u["filnamn"].lower().endswith(".pdf") else "image/*",
+                    key=f"receipt_{u['id']}",
+                )
+                if u["filnamn"].lower().endswith((".png", ".jpg", ".jpeg")):
+                    st.image(receipt_bytes, caption=u["filnamn"], width=500)
+            except Exception as error:
+                st.error(f"Kunde inte läsa kvittot från privat Drive-lagring: {error}")
+
             nk = st.selectbox(
                 f"Konto för {u['namn']}:",
                 options=st.session_state["konton"],
@@ -310,27 +541,33 @@ elif page == "✅ Attestfunktion":
                 u["datum_attesterat"] = datetime.now().strftime("%Y-%m-%d")
                 st.session_state["godkanda_utlagg"].append(u)
                 st.session_state["vantande_utlagg"].remove(u)
-                save_data()
-                st.rerun()
+                try:
+                    save_data()
+                    st.rerun()
+                except Exception as error:
+                    st.error(f"Utlägget attesterades men kunde inte sparas: {error}")
 
             if col_b.button(f"Radera #{u['id']}", key=f"r_{u['id']}"):
-                st.session_state["vantande_utlagg"].remove(u)
-                save_data()
-                st.rerun()
+                try:
+                    delete_drive_file(u["drive_file_id"])
+                    st.session_state["vantande_utlagg"].remove(u)
+                    save_data()
+                    st.rerun()
+                except Exception as error:
+                    st.error(f"Kunde inte radera utlägget eller kvittot från lagringen: {error}")
 
-    st.subheader("Export till Spiris")
-    df = pd.DataFrame([u for u in st.session_state["godkanda_utlagg"] if u["lag"] in access_lag])
+    st.subheader("Attesterade utlägg")
+    approved_for_user = [u for u in st.session_state["godkanda_utlagg"] if u["lag"] in access_lag]
+    df = pd.DataFrame(approved_for_user)
     if not df.empty:
-        cols = ["namn", "lag", "kategori", "belopp", "bank", "clearing", "kontonummer", "datum_attesterat"]
-        st.dataframe(df[cols])
-        st.download_button(
-            label="📥 Ladda ner CSV",
-            data=df[cols].to_csv(index=False, encoding="utf-8-sig"),
-            file_name=f"spiris_{current_user.lower().replace(' ', '_')}.csv",
-            mime="text/csv",
+        cols = ["id", "namn", "lag", "kategori", "belopp", "bank", "clearing", "kontonummer", "attesterat_av", "datum_attesterat", "kvitto_mailat_till_spiris"]
+        st.dataframe(df.reindex(columns=cols))
+        st.caption(
+            "Periodens kvitton mejlas till Spiris och sammanställningen med kvitton "
+            "mejlas till ekonom@ibklund.se den 11:e varje månad."
         )
     else:
-        st.info("Inga godkända utlägg att exportera.")
+        st.info("Inga godkända utlägg ännu.")
 
     st.subheader("Din historik")
     hist = [u for u in st.session_state["godkanda_utlagg"] if u.get("attesterat_av") == current_user]
@@ -369,48 +606,77 @@ elif page == "⚙️ Adminpanel":
 
     st.divider()
 
-    st.subheader("Hantera Attestanter & Behörigheter")
-    an = st.text_input("Namn på attestant:", key="an_namn", value=st.session_state["an_namn"])
-    ae = st.text_input("E-post till attestant:", key="an_mail", value=st.session_state["an_mail"])
-    al = st.multiselect("Välj lag/aktiviteter:", options=st.session_state["lag"], key="an_lag_widget", default=st.session_state["an_lag"])
-
-    if st.button("Spara attestant", key="as_att"):
-        if an and ae and al:
-            st.session_state["attestanter"] = [
-                a for a in st.session_state["attestanter"] if a["namn"].lower() != an.strip().lower()
-            ]
-            st.session_state["attestanter"].append({
-                "namn": an.strip(),
-                "epost": ae.strip(),
-                "lag": al,
-            })
-            st.session_state["an_namn"], st.session_state["an_mail"], st.session_state["an_lag"] = "", "", []
-            save_data()
-            st.rerun()
-
-    if st.session_state["attestanter"]:
-        st.write("### Registrerade attestanter:")
-        for i, att in enumerate(st.session_state["attestanter"]):
-            c_txt, c_ed, c_del = st.columns([4, 1, 1])
-            c_txt.write(f"👤 **{att['namn']}** ({att['epost']}) - {', '.join(att.get('lag', []))}")
-            if c_ed.button("✏️", key=f"ed_{i}"):
-                st.session_state["an_namn"] = att["namn"]
-                st.session_state["an_mail"] = att["epost"]
-                st.session_state["an_lag"] = att.get("lag", [])
-                st.rerun()
-            if c_del.button("🗑️", key=f"del_{i}"):
-                st.session_state["attestanter"].remove(att)
-                save_data()
-                st.rerun()
-
-    st.divider()
-    st.subheader("Användare för login")
-    st.caption("Det här styr vilka som kan logga in för att attestera/admin. Lägg in i .streamlit/secrets.toml som en lista av användare.")
-    st.code(
-        '''
-APP_USERS = [
-  { username = "christer", password = "byt-mitt-losenord", name = "Christer Sölve", email = "christer@solve.se", role = "admin", lag = ["Herr Elit"] },
-  { username = "magnus", password = "byt-mitt-losenord", name = "Magnus Berglund", email = "magnus.berglund@ibklund.se", role = "attestant", lag = ["LundaLägret", "NovaOpen"] }
-]
-'''
+    st.subheader("Hantera behörigheter och användare")
+    st.caption(
+        "Lägg till inloggningar här. Behörighet och attestlag sparas i den permanenta appdatabasen. "
+        "Lösenord lagras som saltade hashvärden. APP_USERS i Secrets används endast för första uppstarten."
     )
+    configured_users = get_app_users()
+    if configured_users:
+        for user in configured_users:
+            role = str(user.get("role", "")).strip().lower()
+            display_name = user.get("name", user.get("username", "Okänd"))
+            email = user.get("email", "")
+            teams = user.get("lag", []) if role == "attestant" else []
+            username = user.get("username", "")
+            suffix = f" — {email}" if email else ""
+            if role == "attestant":
+                suffix += f" — lag: {', '.join(teams)}"
+            st.write(f"**{display_name}** (`{username}`, {role}){suffix}")
+    else:
+        st.warning("Inga användare är konfigurerade. Kontrollera att en första admin finns i APP_USERS i Streamlit Secrets.")
+
+    with st.form("add_app_user_form", clear_on_submit=True):
+        st.markdown("#### Lägg till användare")
+        new_username = st.text_input("Användarnamn")
+        new_name = st.text_input("Namn")
+        new_email = st.text_input("E-post (krävs för attestantnotiser)")
+        new_role = st.selectbox("Roll", options=["attestant", "admin"])
+        new_teams = st.multiselect(
+            "Lag/aktiviteter (gäller endast attestanter)",
+            options=st.session_state["lag"],
+        )
+        new_password = st.text_input("Lösenord (minst 12 tecken)", type="password")
+        new_password_confirm = st.text_input("Upprepa lösenord", type="password")
+        add_user = st.form_submit_button("Skapa användare", type="primary")
+
+    if add_user:
+        username_normalized = new_username.strip().lower()
+        if not username_normalized or not new_name.strip():
+            st.error("Fyll i användarnamn och namn.")
+        elif not re.fullmatch(r"[a-zA-Z0-9._-]{3,50}", username_normalized):
+            st.error("Användarnamnet ska vara 3–50 tecken och bara innehålla bokstäver, siffror, punkt, bindestreck eller understreck.")
+        elif any(
+            str(user.get("username", "")).strip().lower() == username_normalized
+            for user in get_app_users()
+        ):
+            st.error("Det användarnamnet finns redan.")
+        elif new_role == "attestant" and (
+            not new_email.strip()
+            or not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", new_email.strip())
+            or not new_teams
+        ):
+            st.error("Attestanter behöver en giltig e-postadress och minst ett lag/aktivitet.")
+        elif len(new_password) < 12:
+            st.error("Lösenordet måste vara minst 12 tecken.")
+        elif new_password != new_password_confirm:
+            st.error("Lösenorden stämmer inte överens.")
+        else:
+            salt, password_hash = hash_password(new_password)
+            new_user = {
+                "username": username_normalized,
+                "name": new_name.strip(),
+                "email": new_email.strip(),
+                "role": new_role,
+                "lag": new_teams if new_role == "attestant" else [],
+                "password_salt": salt,
+                "password_hash": password_hash,
+            }
+            st.session_state["anvandare"].append(new_user)
+            try:
+                save_data()
+                st.success(f"Användaren {new_name.strip()} skapades.")
+                st.rerun()
+            except Exception as error:
+                st.session_state["anvandare"].remove(new_user)
+                st.error(f"Användaren kunde inte sparas: {error}")
