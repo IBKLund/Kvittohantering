@@ -172,7 +172,6 @@ def load_data():
         "konton": DEFAULT_KONTON.copy(),
         "vantande_utlagg": [],
         "godkanda_utlagg": [],
-        "bankprofiler": [],
     }
     stored = apps_script_request("loadData").get("data", {})
     if not stored:
@@ -196,6 +195,16 @@ def load_data():
             save_data(data)
     else:
         raise RuntimeError("Användarlistan i Google Sheets har fel format.")
+    sensitive_fields = {"bank", "clearing", "kontonummer"}
+    removed_bank_data = "bankprofiler" in stored
+    for key in ["vantande_utlagg", "godkanda_utlagg"]:
+        for expense in data[key]:
+            for field in sensitive_fields:
+                if field in expense:
+                    del expense[field]
+                    removed_bank_data = True
+    if removed_bank_data:
+        save_data(data)
     return data
 
 
@@ -203,7 +212,7 @@ def save_data(data=None):
     if data is None:
         data = {
             key: st.session_state.get(key, [])
-            for key in ["lag", "konton", "vantande_utlagg", "godkanda_utlagg", "anvandare", "bankprofiler"]
+            for key in ["lag", "konton", "vantande_utlagg", "godkanda_utlagg", "anvandare"]
         }
     apps_script_request("saveData", data=data)
 
@@ -239,27 +248,6 @@ def delete_drive_file(file_id):
     apps_script_request("deleteReceipt", fileId=file_id)
 
 
-def authenticate_bank_profile(username, password):
-    normalized_username = (username or "").strip().lower()
-    for profile in st.session_state.get("bankprofiler", []):
-        if str(profile.get("username", "")).strip().lower() == normalized_username:
-            if password_matches(profile, password or ""):
-                return profile
-            return None
-    return None
-
-
-def current_bank_profile():
-    username = st.session_state.get("bank_profile_username", "")
-    return next(
-        (
-            profile for profile in st.session_state.get("bankprofiler", [])
-            if str(profile.get("username", "")).strip().lower() == str(username).strip().lower()
-        ),
-        None,
-    )
-
-
 try:
     saved_data = load_data()
 except Exception as error:
@@ -269,11 +257,6 @@ for key, value in saved_data.items():
     st.session_state[key] = value
 
 for key in [
-    "minne_namn",
-    "minne_bank",
-    "minne_clearing",
-    "minne_konto",
-    "bank_profile_username",
     "bekraftelse_meddelande",
     "mail_fel",
     "auth_user",
@@ -417,120 +400,17 @@ def render_login_panel():
 
 if page == "📝 Registrera Utlägg":
     st.title("📝 Registrera nytt utlägg")
-    st.info("ℹ️ Utbetalning sker runt den 25:e varje månad. Kvitton efter den 10:e utbetalas nästa månad.")
+    st.info(
+        "ℹ️ Appen samlar inte in bank- eller kontonummer. "
+        "Utbetalningsuppgifter lämnas separat enligt föreningens rutin. "
+        "Utbetalning sker runt den 25:e varje månad; kvitton efter den 10:e utbetalas nästa månad."
+    )
     if st.session_state.get("bekraftelse_meddelande"):
         st.success(st.session_state["bekraftelse_meddelande"])
         st.session_state["bekraftelse_meddelande"] = ""
     if st.session_state.get("mail_fel"):
         st.warning("Utlägget sparades, men e-postnotisen kunde inte skickas: " + "; ".join(st.session_state["mail_fel"]))
         st.session_state["mail_fel"] = []
-
-    bank_profile = current_bank_profile()
-    if bank_profile:
-        st.success(f"Inloggad på bankuppgiftskonto: {bank_profile['name']} (`{bank_profile['username']}`).")
-        st.caption(
-            "Dina bankuppgifter fylls i från ditt konto. Du kan ändra dem i formuläret; "
-            "ändringen sparas på kontot när ett nytt utlägg skickas in."
-        )
-        if st.button("Logga ut från bankuppgiftskontot"):
-            st.session_state.pop("bank_profile_username", None)
-            st.session_state.pop("registreringstyp", None)
-            for key in ["minne_namn", "minne_bank", "minne_clearing", "minne_konto"]:
-                st.session_state[key] = ""
-            st.rerun()
-    else:
-        registration_mode = st.radio(
-            "Vill du skapa ett konto för att slippa fylla i bankuppgifterna nästa gång?",
-            ["Fortsätt som gäst", "Skapa konto", "Jag har redan konto"],
-            key="registreringstyp",
-        )
-        if registration_mode == "Fortsätt som gäst":
-            st.info(
-                "Du kan registrera kvitto utan konto. Dina bankuppgifter sparas då tillsammans med utlägget, "
-                "men fylls inte automatiskt i nästa gång du besöker appen."
-            )
-        elif registration_mode == "Skapa konto":
-            st.info(
-                "Ett konto sparar dina bankuppgifter i appens Google Sheets-lagring. "
-                "Nästa gång loggar du in med användarnamn och lösenord för att fylla i dem automatiskt. "
-                "Kontot ger inte attest- eller adminbehörighet. Lämna inte ut lösenordet. "
-                "Utan konto kan du fortfarande skicka in kvitton."
-            )
-            st.caption(
-                "Bankuppgifterna är inte krypterade separat i kalkylarket, och kalkylarkets ägare kan läsa dem. "
-                "Kontot verifierar inte din identitet och det finns ingen lösenordsåterställning ännu."
-            )
-            with st.form("create_bank_profile_form", clear_on_submit=True):
-                profile_username = st.text_input("Välj användarnamn")
-                profile_name = st.text_input("Ditt namn")
-                profile_password = st.text_input("Välj lösenord (minst 12 tecken)", type="password")
-                profile_password_confirm = st.text_input("Upprepa lösenord", type="password")
-                profile_bank = st.text_input("Bank")
-                profile_clearing = st.text_input("Clearingnummer")
-                profile_account = st.text_input("Kontonummer")
-                create_profile = st.form_submit_button("Skapa konto", type="primary")
-
-            if create_profile:
-                normalized_profile_username = profile_username.strip().lower()
-                if not re.fullmatch(r"[a-zA-Z0-9._-]{3,50}", normalized_profile_username):
-                    st.error("Användarnamnet ska vara 3–50 tecken och bara innehålla bokstäver, siffror, punkt, bindestreck eller understreck.")
-                elif any(
-                    str(existing.get("username", "")).strip().lower() == normalized_profile_username
-                    for existing in get_app_users() + st.session_state["bankprofiler"]
-                ):
-                    st.error("Det användarnamnet används redan. Välj ett annat.")
-                elif not all([
-                    profile_name.strip(),
-                    profile_bank.strip(),
-                    profile_clearing.strip(),
-                    profile_account.strip(),
-                ]):
-                    st.error("Fyll i namn och alla bankuppgifter.")
-                elif len(profile_password) < 12:
-                    st.error("Lösenordet måste vara minst 12 tecken.")
-                elif profile_password != profile_password_confirm:
-                    st.error("Lösenorden stämmer inte överens.")
-                else:
-                    salt, password_hash = hash_password(profile_password)
-                    new_profile = {
-                        "username": normalized_profile_username,
-                        "name": profile_name.strip(),
-                        "bank": profile_bank.strip(),
-                        "clearing": profile_clearing.strip(),
-                        "kontonummer": profile_account.strip(),
-                        "password_salt": salt,
-                        "password_hash": password_hash,
-                    }
-                    st.session_state["bankprofiler"].append(new_profile)
-                    try:
-                        save_data()
-                    except Exception as error:
-                        st.session_state["bankprofiler"].remove(new_profile)
-                        st.error(f"Kontot kunde inte sparas: {error}")
-                    else:
-                        st.session_state["bank_profile_username"] = normalized_profile_username
-                        st.session_state["minne_namn"] = new_profile["name"]
-                        st.session_state["minne_bank"] = new_profile["bank"]
-                        st.session_state["minne_clearing"] = new_profile["clearing"]
-                        st.session_state["minne_konto"] = new_profile["kontonummer"]
-                        st.success("Kontot skapades. Du är nu inloggad.")
-                        st.rerun()
-        elif registration_mode == "Jag har redan konto":
-            with st.form("login_bank_profile_form"):
-                profile_username = st.text_input("Användarnamn")
-                profile_password = st.text_input("Lösenord", type="password")
-                login_profile = st.form_submit_button("Logga in")
-            if login_profile:
-                profile = authenticate_bank_profile(profile_username, profile_password)
-                if profile:
-                    st.session_state["bank_profile_username"] = profile["username"]
-                    st.session_state["minne_namn"] = profile["name"]
-                    st.session_state["minne_bank"] = profile["bank"]
-                    st.session_state["minne_clearing"] = profile["clearing"]
-                    st.session_state["minne_konto"] = profile["kontonummer"]
-                    st.rerun()
-                else:
-                    st.error("Fel användarnamn eller lösenord.")
 
     st.caption("Ta ett foto av kvittot med kameran, eller välj en befintlig bild eller PDF nedan.")
     camera_receipt = st.camera_input(
@@ -539,23 +419,18 @@ if page == "📝 Registrera Utlägg":
     )
 
     with st.form("huvud_reg_form", clear_on_submit=True):
-        namn_reg = st.text_input("Ditt Namn:", value=st.session_state["minne_namn"])
+        namn_reg = st.text_input("Ditt Namn:")
         lag_reg = st.selectbox("Välj lag / aktivitet:", options=st.session_state["lag"])
         konto_reg = st.selectbox("Välj konto:", options=st.session_state["konton"])
         belopp_reg = st.number_input("Belopp (kr):", min_value=0.0, step=1.0)
-
-        st.subheader("Bankuppgifter för utbetalning")
-        bank_reg = st.text_input("Bank:", value=st.session_state["minne_bank"])
-        clearing_reg = st.text_input("Clearingnummer:", value=st.session_state["minne_clearing"])
-        konto_nr_reg = st.text_input("Kontonummer:", value=st.session_state["minne_konto"])
         fil_reg = st.file_uploader("Eller välj kvittofil", type=["pdf", "png", "jpg", "jpeg"])
         receipt_file = camera_receipt if camera_receipt is not None else fil_reg
 
         if st.form_submit_button("Skicka in utlägg", type="primary"):
             if camera_receipt is not None and fil_reg is not None:
                 st.error("Välj antingen ett foto från kameran eller en fil, inte båda.")
-            elif not (namn_reg.strip() and bank_reg.strip() and clearing_reg.strip() and konto_nr_reg.strip()):
-                st.error("Fyll i alla namn- och bankuppgifter.")
+            elif not namn_reg.strip():
+                st.error("Fyll i ditt namn.")
             elif receipt_file is None:
                 st.error("Du måste bifoga ett kvitto för att skicka in utlägget.")
             elif receipt_file.size > 10 * 1024 * 1024:
@@ -563,58 +438,28 @@ if page == "📝 Registrera Utlägg":
             elif belopp_reg <= 0:
                 st.error("Beloppet måste vara större än 0 kr.")
             else:
-                st.session_state["minne_namn"] = namn_reg.strip()
-                st.session_state["minne_bank"] = bank_reg.strip()
-                st.session_state["minne_clearing"] = clearing_reg.strip()
-                st.session_state["minne_konto"] = konto_nr_reg.strip()
-
                 all_expenses = st.session_state["vantande_utlagg"] + st.session_state["godkanda_utlagg"]
                 expense_id = max((int(item["id"]) for item in all_expenses), default=0) + 1
-                uploaded_file_id = None
-                profile_index = None
-                original_profile = None
                 try:
                     file_id, file_name = upload_receipt(receipt_file, expense_id)
-                    uploaded_file_id = file_id
                     utl = {
                         "id": expense_id,
                         "namn": namn_reg.strip(),
                         "lag": lag_reg,
                         "kategori": konto_reg,
                         "belopp": float(belopp_reg),
-                        "bank": bank_reg.strip(),
-                        "clearing": clearing_reg.strip(),
-                        "kontonummer": konto_nr_reg.strip(),
                         "filnamn": file_name,
                         "drive_file_id": file_id,
                         "datum_inskickat": datetime.now().strftime("%Y-%m-%d"),
                     }
-                    bank_profile = current_bank_profile()
-                    if bank_profile:
-                        profile_index = next(
-                            index for index, profile in enumerate(st.session_state["bankprofiler"])
-                            if profile is bank_profile
-                        )
-                        original_profile = bank_profile
-                        st.session_state["bankprofiler"][profile_index] = {
-                            **bank_profile,
-                            "name": namn_reg.strip(),
-                            "bank": bank_reg.strip(),
-                            "clearing": clearing_reg.strip(),
-                            "kontonummer": konto_nr_reg.strip(),
-                        }
                     st.session_state["vantande_utlagg"].append(utl)
                     try:
                         save_data()
                     except Exception:
                         st.session_state["vantande_utlagg"].remove(utl)
-                        if profile_index is not None:
-                            st.session_state["bankprofiler"][profile_index] = original_profile
                         delete_drive_file(file_id)
                         raise
                 except Exception as error:
-                    if uploaded_file_id and profile_index is not None and original_profile is not None:
-                        st.session_state["bankprofiler"][profile_index] = original_profile
                     st.error(f"Utlägget kunde inte sparas. Kontrollera Apps Script och Google Sheets/Drive: {error}")
                 else:
                     attestants = [
@@ -675,8 +520,6 @@ elif page == "✅ Attestfunktion":
                 f"**Från:** {u['namn']} | **Lag/aktivitet:** {u['lag']} | "
                 f"**Belopp:** {u['belopp']} kr | **Konto:** {u['kategori']}"
             )
-            with st.expander("Visa bankuppgifter"):
-                st.write(f"{u['bank']} {u['clearing']}-{u['kontonummer']}")
             try:
                 receipt_bytes = download_drive_file(u["drive_file_id"])
                 st.download_button(
@@ -726,7 +569,7 @@ elif page == "✅ Attestfunktion":
     approved_for_user = [u for u in st.session_state["godkanda_utlagg"] if u["lag"] in access_lag]
     df = pd.DataFrame(approved_for_user)
     if not df.empty:
-        cols = ["id", "namn", "lag", "kategori", "belopp", "bank", "clearing", "kontonummer", "attesterat_av", "datum_attesterat", "kvitto_mailat_till_spiris"]
+        cols = ["id", "namn", "lag", "kategori", "belopp", "attesterat_av", "datum_attesterat", "kvitto_mailat_till_spiris"]
         st.dataframe(df.reindex(columns=cols))
         st.caption(
             "Periodens kvitton mejlas till Spiris och sammanställningen med kvitton "
