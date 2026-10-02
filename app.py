@@ -309,7 +309,7 @@ def refresh_authenticated_user():
 refresh_authenticated_user()
 
 
-def send_notification_email(till, namn, lag, belopp, kat, av, expense_id):
+def send_notification_email(till, namn, lag, belopp, kat, av, expense_id, kommentar):
     if "RESEND_API_KEY" not in st.secrets:
         return False, "RESEND_API_KEY saknas i Streamlit Secrets."
     if "MAIL_FROM" not in st.secrets:
@@ -339,6 +339,7 @@ def send_notification_email(till, namn, lag, belopp, kat, av, expense_id):
                 </table>
             </div>
             <p>Vänligen logga in i appen för att granska underlaget, korrigera eventuella uppgifter och attestera utlägget.</p>
+            {f'<p><b>Kommentar från den som registrerade:</b> {escape(kommentar)}</p>' if kommentar else ''}
             <div style="text-align:center; margin:30px 0;">
                 <a href="{app_url}" style="background-color:#c3d600; color:#171717; padding:12px 30px; text-decoration:none; font-weight:bold; border-radius:5px; display:inline-block;">Gå till appen</a>
             </div>
@@ -401,7 +402,9 @@ def render_login_panel():
 if page == "📝 Registrera Utlägg":
     st.title("📝 Registrera nytt utlägg")
     st.info(
-        "ℹ️  Utbetalning sker runt den 25:e varje månad; kvitton efter den 10:e utbetalas nästa månad."
+        "ℹ️ Appen samlar inte in bank- eller kontonummer. "
+        "Utbetalningsuppgifter lämnas separat enligt föreningens rutin. "
+        "Utbetalning sker runt den 25:e varje månad; kvitton efter den 10:e utbetalas nästa månad."
     )
     if st.session_state.get("bekraftelse_meddelande"):
         st.success(st.session_state["bekraftelse_meddelande"])
@@ -421,6 +424,7 @@ if page == "📝 Registrera Utlägg":
         lag_reg = st.selectbox("Välj lag / aktivitet:", options=st.session_state["lag"])
         konto_reg = st.selectbox("Välj konto:", options=st.session_state["konton"])
         belopp_reg = st.number_input("Belopp (kr):", min_value=0.0, step=1.0)
+        kommentar_reg = st.text_area("Kommentar (valfritt)", max_chars=1000)
         fil_reg = st.file_uploader("Eller välj kvittofil", type=["pdf", "png", "jpg", "jpeg"])
         receipt_file = camera_receipt if camera_receipt is not None else fil_reg
 
@@ -446,6 +450,7 @@ if page == "📝 Registrera Utlägg":
                         "lag": lag_reg,
                         "kategori": konto_reg,
                         "belopp": float(belopp_reg),
+                        "kommentar": kommentar_reg.strip(),
                         "filnamn": file_name,
                         "drive_file_id": file_id,
                         "datum_inskickat": datetime.now().strftime("%Y-%m-%d"),
@@ -476,7 +481,8 @@ if page == "📝 Registrera Utlägg":
                                 mail_fel.append(f"{att_name}: e-postadress saknas i användarinställningarna.")
                                 continue
                             sent, mail_error = send_notification_email(
-                                att_email, att_name, lag_reg, belopp_reg, konto_reg, namn_reg.strip(), expense_id
+                                att_email, att_name, lag_reg, belopp_reg, konto_reg, namn_reg.strip(),
+                                expense_id, kommentar_reg.strip()
                             )
                             if not sent:
                                 mail_fel.append(f"{att_name}: {mail_error}")
@@ -518,6 +524,8 @@ elif page == "✅ Attestfunktion":
                 f"**Från:** {u['namn']} | **Lag/aktivitet:** {u['lag']} | "
                 f"**Belopp:** {u['belopp']} kr | **Konto:** {u['kategori']}"
             )
+            if u.get("kommentar"):
+                st.info(f"**Kommentar från den som registrerade:** {u['kommentar']}")
             try:
                 receipt_bytes = download_drive_file(u["drive_file_id"])
                 st.download_button(
@@ -571,7 +579,7 @@ elif page == "✅ Attestfunktion":
         st.dataframe(df.reindex(columns=cols))
         st.caption(
             "Periodens kvitton mejlas till Spiris och sammanställningen med kvitton "
-            "mejlas till ekonom@ibklund.se den 11:e varje månad."
+            "mejlas till ekonomi@ibklund.se den 11:e varje månad."
         )
     else:
         st.info("Inga godkända utlägg ännu.")
