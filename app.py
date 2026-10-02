@@ -401,9 +401,7 @@ def render_login_panel():
 if page == "📝 Registrera Utlägg":
     st.title("📝 Registrera nytt utlägg")
     st.info(
-        "ℹ️ Appen samlar inte in bank- eller kontonummer. "
-        "Utbetalningsuppgifter lämnas separat enligt föreningens rutin. "
-        "Utbetalning sker runt den 25:e varje månad; kvitton efter den 10:e utbetalas nästa månad."
+        "ℹ️  Utbetalning sker runt den 25:e varje månad; kvitton efter den 10:e utbetalas nästa månad."
     )
     if st.session_state.get("bekraftelse_meddelande"):
         st.success(st.session_state["bekraftelse_meddelande"])
