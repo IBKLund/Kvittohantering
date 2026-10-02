@@ -613,7 +613,7 @@ elif page == "⚙️ Adminpanel":
     )
     configured_users = get_app_users()
     if configured_users:
-        for user in configured_users:
+        for user_index, user in enumerate(configured_users):
             role = str(user.get("role", "")).strip().lower()
             display_name = user.get("name", user.get("username", "Okänd"))
             email = user.get("email", "")
@@ -622,7 +622,128 @@ elif page == "⚙️ Adminpanel":
             suffix = f" — {email}" if email else ""
             if role == "attestant":
                 suffix += f" — lag: {', '.join(teams)}"
-            st.write(f"**{display_name}** (`{username}`, {role}){suffix}")
+            with st.expander(f"{display_name} (`{username}`, {role}){suffix}"):
+                with st.form(f"edit_app_user_{user_index}"):
+                    st.markdown("#### Redigera användare")
+                    edit_username = st.text_input(
+                        "Användarnamn",
+                        value=str(user.get("username", "")),
+                        key=f"edit_username_{user_index}",
+                    )
+                    edit_name = st.text_input(
+                        "Namn",
+                        value=str(user.get("name", "")),
+                        key=f"edit_name_{user_index}",
+                    )
+                    edit_email = st.text_input(
+                        "E-post",
+                        value=str(user.get("email", "")),
+                        key=f"edit_email_{user_index}",
+                    )
+                    edit_role = st.selectbox(
+                        "Roll",
+                        options=["attestant", "admin"],
+                        index=0 if role == "attestant" else 1,
+                        key=f"edit_role_{user_index}",
+                    )
+                    edit_teams = st.multiselect(
+                        "Lag/aktiviteter (gäller endast attestanter)",
+                        options=st.session_state["lag"],
+                        default=[team for team in teams if team in st.session_state["lag"]],
+                        key=f"edit_teams_{user_index}",
+                    )
+                    edit_password = st.text_input(
+                        "Nytt lösenord (lämna tomt för att behålla nuvarande)",
+                        type="password",
+                        key=f"edit_password_{user_index}",
+                    )
+                    edit_password_confirm = st.text_input(
+                        "Upprepa nytt lösenord",
+                        type="password",
+                        key=f"edit_password_confirm_{user_index}",
+                    )
+                    save_user_changes = st.form_submit_button("Spara ändringar")
+
+                if save_user_changes:
+                    normalized_username = edit_username.strip().lower()
+                    last_admin = role == "admin" and sum(
+                        str(existing.get("role", "")).strip().lower() == "admin"
+                        for existing in configured_users
+                    ) == 1
+                    if not normalized_username or not edit_name.strip():
+                        st.error("Fyll i användarnamn och namn.")
+                    elif not re.fullmatch(r"[a-zA-Z0-9._-]{3,50}", normalized_username):
+                        st.error("Användarnamnet ska vara 3–50 tecken och bara innehålla bokstäver, siffror, punkt, bindestreck eller understreck.")
+                    elif any(
+                        index != user_index
+                        and str(existing.get("username", "")).strip().lower() == normalized_username
+                        for index, existing in enumerate(configured_users)
+                    ):
+                        st.error("Det användarnamnet finns redan.")
+                    elif edit_role == "attestant" and (
+                        not edit_email.strip()
+                        or not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", edit_email.strip())
+                        or not edit_teams
+                    ):
+                        st.error("Attestanter behöver en giltig e-postadress och minst ett lag/aktivitet.")
+                    elif last_admin and edit_role != "admin":
+                        st.error("Den sista adminanvändaren kan inte göras om till attestant.")
+                    elif bool(edit_password) != bool(edit_password_confirm):
+                        st.error("Fyll i båda lösenordsfälten för att byta lösenord.")
+                    elif edit_password and len(edit_password) < 12:
+                        st.error("Det nya lösenordet måste vara minst 12 tecken.")
+                    elif edit_password and edit_password != edit_password_confirm:
+                        st.error("De nya lösenorden stämmer inte överens.")
+                    else:
+                        updated_user = {
+                            **user,
+                            "username": normalized_username,
+                            "name": edit_name.strip(),
+                            "email": edit_email.strip(),
+                            "role": edit_role,
+                            "lag": edit_teams if edit_role == "attestant" else [],
+                        }
+                        if edit_password:
+                            salt, digest = hash_password(edit_password)
+                            updated_user.pop("password", None)
+                            updated_user["password_salt"] = salt
+                            updated_user["password_hash"] = digest
+
+                        st.session_state["anvandare"][user_index] = updated_user
+                        try:
+                            save_data()
+                            if st.session_state.get("auth_username", "").lower() == str(user.get("username", "")).lower():
+                                st.session_state["auth_username"] = normalized_username
+                            st.success(f"Uppgifterna för {edit_name.strip()} sparades.")
+                            st.rerun()
+                        except Exception as error:
+                            st.session_state["anvandare"][user_index] = user
+                            st.error(f"Ändringarna kunde inte sparas: {error}")
+
+                with st.form(f"delete_app_user_{user_index}"):
+                    confirm_delete = st.checkbox(
+                        f"Bekräfta att {display_name} ska tas bort",
+                        key=f"confirm_delete_{user_index}",
+                    )
+                    delete_user = st.form_submit_button("Ta bort användare")
+
+                if delete_user:
+                    if not confirm_delete:
+                        st.error("Bekräfta borttagningen genom att markera rutan.")
+                    elif role == "admin" and sum(
+                        str(existing.get("role", "")).strip().lower() == "admin"
+                        for existing in configured_users
+                    ) <= 1:
+                        st.error("Den sista adminanvändaren kan inte tas bort.")
+                    else:
+                        removed_user = st.session_state["anvandare"].pop(user_index)
+                        try:
+                            save_data()
+                            st.success(f"Användaren {display_name} togs bort.")
+                            st.rerun()
+                        except Exception as error:
+                            st.session_state["anvandare"].insert(user_index, removed_user)
+                            st.error(f"Användaren kunde inte tas bort: {error}")
     else:
         st.warning("Inga användare är konfigurerade. Kontrollera att en första admin finns i APP_USERS i Streamlit Secrets.")
 
